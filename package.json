@@ -1,0 +1,12 @@
+{
+  "name": "kanakku-book",
+  "version": "1.0.0",
+  "description": "கணக்கு Book — Executive Financial Tracker with Cross-Device Cloud Data Sync",
+  "main": "index.html",
+  "scripts": {
+    "start": "npx serve ."
+  },
+  "keywords": ["expense-tracker", "finance", "kanakku-book", "cloud-sync"],
+  "author": "Antigravity",
+  "license": "MIT"
+}

@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>கணக்கு Book — Executive Financial Tracker</title>
+  <meta name="description" content="Ultra-executive Glassmorphism expense tracker with user password authentication and cross-device cloud data sync.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- Background Mesh Orbs -->
+  <div class="bg-mesh" aria-hidden="true">
+    <div class="bg-orb"></div>
+    <div class="bg-orb"></div>
+    <div class="bg-orb"></div>
+  </div>
+
+  <!-- FULLSCREEN USER AUTHENTICATION SCREEN (SIGN IN / REGISTER) -->
+  <div class="auth-landing-screen" id="authLandingScreen">
+    <div class="auth-landing-card">
+      
+      <!-- Brand Header -->
+      <div class="auth-landing-header">
+        <div class="auth-logo"><span>💳</span> கணக்கு Book</div>
+        <h1 id="authCardTitle">Sign in to கணக்கு Book</h1>
+        <p id="authCardSubtext">Enter your email and password to access your isolated finances</p>
+      </div>
+
+      <!-- Auth Mode Nav Tabs -->
+      <div class="auth-tabs mb-4">
+        <button class="auth-tab-btn active" id="tabSignInBtn">Sign In</button>
+        <button class="auth-tab-btn" id="tabRegisterBtn">Create Account</button>
+      </div>
+
+      <!-- SIGN IN FORM -->
+      <form id="signInForm" onsubmit="return false;" class="auth-form-container active">
+        <div class="form-group mb-3">
+          <label for="loginEmailInput">Email Address</label>
+          <input type="email" id="loginEmailInput" placeholder="name@company.com" required autocomplete="email">
+        </div>
+
+        <div class="form-group mb-4">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <label for="loginPasswordInput" style="margin-bottom:0;">Password</label>
+            <button type="button" class="btn-toggle-pwd" id="toggleLoginPwdBtn">Show</button>
+          </div>
+          <input type="password" id="loginPasswordInput" placeholder="••••••••" required autocomplete="current-password">
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-auth-submit" id="signInSubmitBtn">Sign In to Dashboard →</button>
+        
+        <div class="auth-footer-link mt-3">
+          <span>Don't have an account?</span>
+          <a href="#" id="gotoRegisterLink">Create an account</a>
+        </div>
+      </form>
+
+      <!-- REGISTER FORM -->
+      <form id="registerForm" onsubmit="return false;" class="auth-form-container" style="display: none;">
+        <div style="display: flex; gap: 12px;" class="mb-3">
+          <div class="form-group">
+            <label for="registerFirstNameInput">First Name</label>
+            <input type="text" id="registerFirstNameInput" placeholder="e.g. Sarah" required autocomplete="given-name">
+          </div>
+          <div class="form-group">
+            <label for="registerLastNameInput">Last Name</label>
+            <input type="text" id="registerLastNameInput" placeholder="e.g. Jenkins" required autocomplete="family-name">
+          </div>
+        </div>
+
+        <div class="form-group mb-3">
+          <label for="registerEmailInput">Email Address</label>
+          <input type="email" id="registerEmailInput" placeholder="name@company.com" required autocomplete="email">
+        </div>
+
+        <div class="form-group mb-3">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <label for="registerPasswordInput" style="margin-bottom:0;">Password</label>
+            <button type="button" class="btn-toggle-pwd" id="toggleRegisterPwdBtn">Show</button>
+          </div>
+          <input type="password" id="registerPasswordInput" placeholder="Min. 4 characters" required autocomplete="new-password">
+        </div>
+
+        <div class="form-group mb-4">
+          <label for="registerConfirmPasswordInput">Confirm Password</label>
+          <input type="password" id="registerConfirmPasswordInput" placeholder="Re-enter password" required autocomplete="new-password">
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-auth-submit" id="registerSubmitBtn">+ Create Account & Sign In</button>
+        
+        <div class="auth-footer-link mt-3">
+          <span>Already have an account?</span>
+          <a href="#" id="gotoSignInLink">Sign in here</a>
+        </div>
+      </form>
+
+    </div>
+  </div>
+
+  <!-- MAIN APP WRAPPER (Hidden until user logs in) -->
+  <div class="app-wrapper" id="appWrapper" style="display: none; width: 100%;">
+
+    <!-- Mobile Header -->
+    <header class="mobile-header" id="mobileHeader">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <button class="hamburger" id="hamburgerBtn" aria-label="Toggle Menu">☰</button>
+        <div class="logo"><span>💳</span> கணக்கு Book</div>
+      </div>
+      <div class="mobile-user-trigger" id="mobileUserBtn" title="Account & Profile Settings">
+        <span id="mobileUserAvatar">👨‍💼</span>
+      </div>
+    </header>
+
+    <!-- Sidebar Overlay -->
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="logo"><span>💳</span> கணக்கு Book</div>
+      </div>
+
+      <!-- Active Authenticated User Profile Badge (Displays First Name Only) -->
+      <div class="user-profile-badge" id="userProfileBadge" title="Click for Account Settings & Logout">
+        <div class="user-info">
+          <div class="user-avatar" id="currentUserAvatar">👨‍💼</div>
+          <div class="user-details">
+            <span class="user-name" id="currentUserName">Hari</span>
+            <span class="user-role" id="currentUserEmail">hari@company.com</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Month Selector -->
+      <div class="month-selector">
+        <select id="monthSelect" aria-label="Select Month"></select>
+        <button class="btn-add-month" id="addMonthBtn" title="Add New Month">+</button>
+        <button class="btn-delete-month" id="deleteMonthBtn" title="Delete Current Month">🗑</button>
+      </div>
+
+      <nav class="sidebar-nav">
+        <a href="#" class="nav-link active" data-section="dashboard">
+          <span class="nav-icon">📊</span> Dashboard
+        </a>
+        <a href="#" class="nav-link" data-section="income">
+          <span class="nav-icon">💵</span> Income
+        </a>
+        <a href="#" class="nav-link" data-section="banks">
+          <span class="nav-icon">🏦</span> Bank Accounts
+        </a>
+        <a href="#" class="nav-link" data-section="deposits">
+          <span class="nav-icon">📈</span> Deposits
+        </a>
+        <a href="#" class="nav-link" data-section="wants">
+          <span class="nav-icon">🛍️</span> Wants
+        </a>
+        <a href="#" class="nav-link" data-section="needs">
+          <span class="nav-icon">📋</span> Needs
+        </a>
+        <a href="#" class="nav-link" data-section="daily">
+          <span class="nav-icon">📅</span> Daily Expenses
+        </a>
+        <a href="#" class="nav-link" data-section="savings">
+          <span class="nav-icon">🏆</span> Savings
+        </a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <button class="btn-export" id="exportBtn">📤 Export CSV</button>
+        <button class="btn-import" id="importBtn">📥 Import CSV</button>
+        <input type="file" id="importFileInput" class="hidden-input" accept=".csv">
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+
+      <!-- Top Control Bar for Filtering & Cloud Sync -->
+      <div class="top-control-bar">
+        <div class="filter-mode-toggle">
+          <button class="filter-mode-btn active" id="viewMonthModeBtn">Month View</button>
+          <button class="filter-mode-btn" id="viewCustomModeBtn">Custom Date Range</button>
+        </div>
+
+        <div class="date-range-picker" id="customRangePicker" style="display: none;">
+          <label for="startDateInput">From:</label>
+          <input type="date" id="startDateInput">
+          <label for="endDateInput">To:</label>
+          <input type="date" id="endDateInput">
+          <button class="btn btn-secondary" id="applyCustomDateBtn">Apply</button>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span class="cloud-sync-badge" id="cloudSyncStatusBadge" title="Cross-Device Cloud Sync Active" style="font-size:0.75rem; font-weight:600; color:var(--pastel-blue); background:rgba(163,196,243,0.12); padding:4px 10px; border-radius:20px; border:1px solid rgba(163,196,243,0.25);">☁️ Synced to Cloud</span>
+          <button class="btn btn-secondary" id="manualSyncBtn" title="Sync now with Cloud" style="padding: 4px 10px; font-size: 0.72rem;">🔄 Sync Now</button>
+        </div>
+      </div>
+
+      <!-- ======================== DASHBOARD ======================== -->
+      <section id="dashboard-section" class="content-section active">
+        <div class="section-header">
+          <h1>Dashboard</h1>
+          <p id="dashboardSubtext">Financial summary & activity</p>
+        </div>
+
+        <!-- Overall Net Income Reduction Banner -->
+        <div class="net-income-banner" id="netIncomeBanner"></div>
+
+        <!-- Stat Cards -->
+        <div class="stat-cards" id="dashboardStats"></div>
+
+        <!-- Budget Allocation Bar -->
+        <div class="card budget-bar-container mb-6">
+          <div class="card-title">Budget Allocation Breakdown</div>
+          <div class="budget-bar" id="budgetBar"></div>
+          <div class="budget-legend" id="budgetLegend"></div>
+        </div>
+
+        <!-- Charts -->
+        <div class="chart-grid">
+          <div class="chart-card">
+            <div class="chart-title">Expense Category Breakdown</div>
+            <div class="chart-wrapper">
+              <canvas id="expenseChart"></canvas>
+            </div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-title">Daily Spending Trend</div>
+            <div class="chart-wrapper">
+              <canvas id="dailyChart"></canvas>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ======================== INCOME ======================== -->
+      <section id="income-section" class="content-section">
+        <div class="section-header">
+          <h1>Income Management</h1>
+          <p>Set monthly income and view net income reduction from Needs, Wants, and Expenses</p>
+        </div>
+
+        <div class="income-grid">
+          <div class="income-input-card">
+            <h3>💵 Total Monthly Income</h3>
+            <input type="number" class="income-big-input" id="incomeInput" placeholder="0.00" min="0" step="0.01">
+            <div class="split-config">
+              <div class="split-item needs">
+                <div class="split-label">Needs Target</div>
+                <div class="split-pct">
+                  <input type="number" id="needsPct" value="50" min="0" max="100" step="1"> <span class="text-muted">%</span>
+                </div>
+                <div class="split-amount" id="needsAmount">₹ 0.00</div>
+              </div>
+              <div class="split-item savings">
+                <div class="split-label">Savings Target</div>
+                <div class="split-pct">
+                  <input type="number" id="savingsPct" value="20" min="0" max="100" step="1"> <span class="text-muted">%</span>
+                </div>
+                <div class="split-amount" id="savingsAmount">₹ 0.00</div>
+              </div>
+              <div class="split-item wants">
+                <div class="split-label">Wants Target</div>
+                <div class="split-pct">
+                  <input type="number" id="wantsPct" value="10" min="0" max="100" step="1"> <span class="text-muted">%</span>
+                </div>
+                <div class="split-amount" id="wantsAmount">₹ 0.00</div>
+              </div>
+              <div class="split-item balance">
+                <div class="split-label">Target Balance</div>
+                <div class="split-pct">
+                  <span class="text-muted" id="balancePct">20%</span>
+                </div>
+                <div class="split-amount" id="balanceAmount">₹ 0.00</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="initial-balance-card">
+            <h3>🏦 Bank & Total Balance Overview</h3>
+            <p class="text-muted" style="font-size:0.82rem;margin-bottom:18px;">
+              Starting bank balance and active bank account totals
+            </p>
+            <input type="number" class="income-big-input" id="initialBalanceInput" placeholder="0.00" min="0" step="0.01">
+
+            <div class="summary-row positive mt-4">
+              <span class="summary-label">Available Bank Balance (Latest per Bank)</span>
+              <span class="summary-value" id="availBankBal">₹ 0.00</span>
+            </div>
+            <div class="summary-row positive mt-4">
+              <span class="summary-label">Available Total Balance (incl. Deposits)</span>
+              <span class="summary-value" id="availTotalBal">₹ 0.00</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ======================== BANK ACCOUNTS ======================== -->
+      <section id="banks-section" class="content-section">
+        <div class="section-header">
+          <h1>Bank Accounts</h1>
+          <p>Manage unique bank accounts & record balance log entries</p>
+        </div>
+
+        <!-- Step 1: Create New Unique Bank Account Form -->
+        <div class="card-title">+ Add New Bank Account</div>
+        <div class="inline-form" id="createAccountForm">
+          <div class="form-group">
+            <label for="newAccountBankName">Bank Name</label>
+            <input type="text" id="newAccountBankName" placeholder="e.g. HDFC Bank, SBI, AXIS">
+          </div>
+          <div class="form-group">
+            <label for="newAccountNumber">Account Number (Unique)</label>
+            <input type="text" id="newAccountNumber" placeholder="e.g. 501002345678 or 1234">
+          </div>
+          <div class="form-group">
+            <label for="newAccountInitialBal">Initial Balance (₹)</label>
+            <input type="number" id="newAccountInitialBal" placeholder="0.00" min="0" step="0.01">
+          </div>
+          <button class="btn btn-primary" id="createAccountBtn">+ Create Bank Account</button>
+        </div>
+
+        <!-- Active Registered Bank Accounts Grid -->
+        <div class="card-title">Registered Bank Accounts (Latest Balance)</div>
+        <div class="bank-cards-grid" id="bankCardsGrid"></div>
+
+        <!-- Step 2: Record Balance Entry for Existing Account -->
+        <div class="card-title">+ Record Balance Entry for Account</div>
+        <div class="inline-form" id="bankBalanceForm">
+          <div class="form-group" style="min-width: 200px;">
+            <label for="selectBankAccountId">Select Bank Account</label>
+            <select id="selectBankAccountId"></select>
+          </div>
+          <div class="form-group" style="max-width: 150px;">
+            <label for="bankEntryDateInput">Date</label>
+            <input type="date" id="bankEntryDateInput">
+          </div>
+          <div class="form-group">
+            <label for="bankEntryBalanceInput">Recorded Balance (₹)</label>
+            <input type="number" id="bankEntryBalanceInput" placeholder="0.00" min="0" step="0.01">
+          </div>
+          <button class="btn btn-primary" id="recordBankBalanceBtn">+ Record Balance Entry</button>
+        </div>
+
+        <!-- Step 3: Full Log History Table -->
+        <div class="card-title">Balance Entry Log History</div>
+        <div class="table-container">
+          <table class="data-table" id="banksTable">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Date</th>
+                <th>Bank Name</th>
+                <th>Account Number</th>
+                <th>Recorded Balance</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="banksTableBody"></tbody>
+          </table>
+          <div class="table-footer">
+            <span class="total-label">Total Available Bank Balance (Latest per Account)</span>
+            <span class="total-value text-success" id="banksTotalValue">₹ 0.00</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ======================== DEPOSITS ======================== -->
+      <section id="deposits-section" class="content-section">
+        <div class="section-header">
+          <h1>Deposits Dashboard</h1>
+          <p>Overview of Fixed Deposits (FD) & Recurring Deposits (RD) grouped cumulatively by Account Number</p>
+        </div>
+
+        <!-- Cumulative Deposits Grid (Grouped by Account Number & Deposit Type) -->
+        <div class="card-title">Cumulative Deposits Overview (by Account & Type)</div>
+        <div class="deposits-cards-grid" id="cumulativeDepositsGrid"></div>
+
+        <!-- Deposit Log Table -->
+        <div class="card-title">Deposit History Log</div>
+        <div class="table-container">
+          <table class="data-table" id="depositsTable">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Date</th>
+                <th>Type</th>
+                <th>Account Number</th>
+                <th>Particulars</th>
+                <th>Amount</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="depositsTableBody"></tbody>
+          </table>
+          <div class="table-footer">
+            <span class="total-label">Total Deposits Amount</span>
+            <span class="total-value text-warning" id="depositsTotalValue">₹ 0.00</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ======================== WANTS ======================== -->
+      <section id="wants-section" class="content-section">
+        <div class="section-header">
+          <h1>Wants Expenses</h1>
+          <p>Discretionary spending</p>
+        </div>
+
+        <div class="category-budget" id="wantsBudget"></div>
+
+        <div class="inline-form" id="wantsForm">
+          <div class="form-group" style="max-width: 150px;">
+            <label for="wantsDateInput">Date</label>
+            <input type="date" id="wantsDateInput">
+          </div>
+          <div class="form-group">
+            <label for="wantsNameInput">Expense Name</label>
+            <input type="text" id="wantsNameInput" placeholder="e.g. Headphones">
+          </div>
+          <div class="form-group">
+            <label for="wantsAmountInput">Amount (₹)</label>
+            <input type="number" id="wantsAmountInput" placeholder="0.00" min="0" step="0.01">
+          </div>
+          <button class="btn btn-primary" id="addWantsBtn">+ Add Expense</button>
+        </div>
+
+        <div class="table-container">
+          <table class="data-table" id="wantsTable">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Date</th>
+                <th>Expense</th>
+                <th>Amount</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="wantsTableBody"></tbody>
+          </table>
+          <div class="table-footer">
+            <span class="total-label">Total Wants</span>
+            <span class="total-value" id="wantsTotalValue">₹ 0.00</span>
+          </div>
+        </div>
+
+        <div class="summary-row mt-4" id="wantsBalanceRow">
+          <span class="summary-label">Remaining Budget</span>
+          <span class="summary-value" id="wantsBalanceValue">₹ 0.00</span>
+        </div>
+      </section>
+
+      <!-- ======================== NEEDS ======================== -->
+      <section id="needs-section" class="content-section">
+        <div class="section-header">
+          <h1>Needs Expenses</h1>
+          <p>Essential spending — bills, groceries, and necessities</p>
+        </div>
+
+        <div class="category-budget" id="needsBudget"></div>
+
+        <div class="inline-form" id="needsForm">
+          <div class="form-group" style="max-width: 150px;">
+            <label for="needsDateInput">Date</label>
+            <input type="date" id="needsDateInput">
+          </div>
+          <div class="form-group">
+            <label for="needsNameInput">Expense Name</label>
+            <input type="text" id="needsNameInput" placeholder="e.g. Electricity Bill">
+          </div>
+          <div class="form-group">
+            <label for="needsAmountInput">Amount (₹)</label>
+            <input type="number" id="needsAmountInput" placeholder="0.00" min="0" step="0.01">
+          </div>
+          <button class="btn btn-primary" id="addNeedsBtn">+ Add Expense</button>
+        </div>
+
+        <div class="table-container">
+          <table class="data-table" id="needsTable">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Date</th>
+                <th>Expense</th>
+                <th>Amount</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="needsTableBody"></tbody>
+          </table>
+          <div class="table-footer">
+            <span class="total-label">Total Needs</span>
+            <span class="total-value" id="needsTotalValue">₹ 0.00</span>
+          </div>
+        </div>
+
+        <div class="summary-row mt-4" id="needsBalanceRow">
+          <span class="summary-label">Remaining Budget</span>
+          <span class="summary-value" id="needsBalanceValue">₹ 0.00</span>
+        </div>
+      </section>
+
+      <!-- ======================== DAILY EXPENSES DASHBOARD ======================== -->
+      <section id="daily-section" class="content-section">
+        <div class="section-header">
+          <h1>Daily Expenses Dashboard</h1>
+          <p>Automated daily spending view directly proportional to the days of the current month</p>
+        </div>
+
+        <div class="daily-grid" id="dailyGrid"></div>
+
+        <div class="summary-row" id="dailyTotalRow">
+          <span class="summary-label">Total Daily Aggregated Expenses (Needs + Wants)</span>
+          <span class="summary-value" id="dailyTotalValue">₹ 0.00</span>
+        </div>
+
+        <div class="chart-card mt-4">
+          <div class="chart-title">Daily Spending Distribution</div>
+          <div class="chart-wrapper">
+            <canvas id="dailySectionChart"></canvas>
+          </div>
+        </div>
+      </section>
+
+      <!-- ======================== SAVINGS ======================== -->
+      <section id="savings-section" class="content-section">
+        <div class="section-header">
+          <h1>Savings & Deposits</h1>
+          <p>Manage savings instruments & record daily/monthly contributions</p>
+        </div>
+
+        <div class="category-budget" id="savingsBudget"></div>
+
+        <!-- Step 1: Create Savings Instrument / Deposit Account -->
+        <div class="card-title">+ Add New Savings Instrument / Deposit Account</div>
+        <div class="inline-form" id="createSavingsInstrumentForm">
+          <div class="form-group" style="min-width: 200px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <label for="newSavingsType" style="margin-bottom: 0;">Savings Type</label>
+              <button class="btn btn-secondary" id="openCustomTypeModalBtn" type="button" style="padding: 2px 8px; font-size: 0.7rem;">+ Custom Type</button>
+            </div>
+            <select id="newSavingsType"></select>
+          </div>
+          <div class="form-group">
+            <label for="newSavingsName">Instrument / Particulars Name</label>
+            <input type="text" id="newSavingsName" placeholder="e.g. AXIS Bank RD, Zerodha SIP">
+          </div>
+          <div class="form-group">
+            <label for="newSavingsAccNum">Account / Ref Number (Unique)</label>
+            <input type="text" id="newSavingsAccNum" placeholder="e.g. RD-5010098 or 1234">
+          </div>
+          <div class="form-group">
+            <label for="newSavingsInitialAmount">Initial Contribution (₹)</label>
+            <input type="number" id="newSavingsInitialAmount" placeholder="0.00" min="0" step="0.01">
+          </div>
+          <button class="btn btn-primary" id="createSavingsInstrumentBtn">+ Create Instrument</button>
+        </div>
+
+        <!-- Active Registered Savings Cards Grid -->
+        <div class="card-title">Registered Savings & Deposits (Cumulative Totals)</div>
+        <div class="deposits-cards-grid" id="savingsCardsGrid"></div>
+
+        <!-- Step 2: Record Contribution / Entry for Existing Instrument -->
+        <div class="card-title">+ Record Savings / Deposit Entry</div>
+        <div class="inline-form" id="recordSavingsEntryForm">
+          <div class="form-group" style="min-width: 220px;">
+            <label for="selectSavingsInstrumentId">Select Savings Instrument</label>
+            <select id="selectSavingsInstrumentId"></select>
+          </div>
+          <div class="form-group" style="max-width: 150px;">
+            <label for="savingsEntryDateInput">Date</label>
+            <input type="date" id="savingsEntryDateInput">
+          </div>
+          <div class="form-group">
+            <label for="savingsEntryAmountInput">Contribution Amount (₹)</label>
+            <input type="number" id="savingsEntryAmountInput" placeholder="0.00" min="0" step="0.01">
+          </div>
+          <button class="btn btn-primary" id="recordSavingsEntryBtn">+ Record Entry</button>
+        </div>
+
+        <!-- Step 3: Full Savings History Table -->
+        <div class="card-title">Savings & Deposits Entry Log History</div>
+        <div class="table-container">
+          <table class="data-table" id="savingsTable">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Date</th>
+                <th>Type</th>
+                <th>Account Number</th>
+                <th>Instrument</th>
+                <th>Amount</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="savingsTableBody"></tbody>
+          </table>
+          <div class="table-footer">
+            <span class="total-label">Total Savings Amount (incl. Deposits)</span>
+            <span class="total-value text-warning" id="savingsTotalValue">₹ 0.00</span>
+          </div>
+        </div>
+
+        <div class="summary-row mt-4" id="savingsBalanceRow">
+          <span class="summary-label">Remaining Savings Budget</span>
+          <span class="summary-value" id="savingsBalanceValue">₹ 0.00</span>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Account Settings & Profile Actions Modal -->
+  <div class="modal-overlay" id="userSwitchModal">
+    <div class="modal" style="max-width: 440px;">
+      <div class="modal-header">
+        <h2>Account Settings</h2>
+        <button class="modal-close" id="userSwitchModalClose">✕</button>
+      </div>
+      <div class="modal-body">
+        
+        <div style="text-align: center; margin-bottom: 20px; padding: 20px; background: rgba(255,255,255,0.03); border-radius: var(--radius-md); border: 1px solid var(--glass-border);">
+          <div style="font-size: 2.8rem; margin-bottom: 8px;" id="modalUserAvatar">👨‍💼</div>
+          <h3 id="modalUserName" style="font-size: 1.15rem; font-weight: 800; color: var(--text-primary);">Hari Karthik</h3>
+          <p id="modalUserEmail" style="font-size: 0.82rem; color: var(--pastel-blue); font-weight: 500; margin-top: 2px;">hari@company.com</p>
+        </div>
+
+        <!-- Edit Profile Name Section -->
+        <div class="card-title" style="margin-top: 0;">Edit Profile Name</div>
+        <form id="editProfileForm" onsubmit="return false;" style="margin-bottom: 20px;">
+          <div style="display: flex; gap: 12px;" class="mb-3">
+            <div class="form-group">
+              <label for="editFirstNameInput">First Name</label>
+              <input type="text" id="editFirstNameInput" placeholder="First Name" required>
+            </div>
+            <div class="form-group">
+              <label for="editLastNameInput">Last Name</label>
+              <input type="text" id="editLastNameInput" placeholder="Last Name">
+            </div>
+          </div>
+          <button type="submit" class="btn btn-secondary" id="saveProfileNameBtn" style="width: 100%; height: 40px; font-size: 0.82rem;">💾 Save Name Changes</button>
+        </form>
+
+        <!-- Change Password Section -->
+        <div class="card-title" style="margin-top: 18px;">Change Password</div>
+        <form id="changePasswordForm" onsubmit="return false;" style="margin-bottom: 24px;">
+          <div class="form-group mb-2">
+            <label for="changeCurrentPwdInput">Current Password</label>
+            <input type="password" id="changeCurrentPwdInput" placeholder="Enter current password" required autocomplete="current-password">
+          </div>
+          <div class="form-group mb-2">
+            <label for="changeNewPwdInput">New Password</label>
+            <input type="password" id="changeNewPwdInput" placeholder="Min. 4 characters" required autocomplete="new-password">
+          </div>
+          <div class="form-group mb-3">
+            <label for="changeConfirmPwdInput">Confirm New Password</label>
+            <input type="password" id="changeConfirmPwdInput" placeholder="Re-enter new password" required autocomplete="new-password">
+          </div>
+          <button type="submit" class="btn btn-secondary" id="changePasswordBtn" style="width: 100%; height: 40px; font-size: 0.82rem;">🔑 Update Password</button>
+        </form>
+
+        <div style="display: flex; flex-direction: column; gap: 12px; border-top: 1px solid var(--glass-border); padding-top: 18px;">
+          <button class="btn btn-primary" id="logoutModalBtn" style="width: 100%; height: 44px; font-size: 0.9rem;">🚪 Logout of Account</button>
+          <button class="btn btn-secondary" id="deleteAccountModalBtn" style="width: 100%; height: 42px; font-size: 0.82rem; color: var(--pastel-rose); border-color: rgba(241, 151, 144, 0.3);">🗑️ Delete Account & Purge Data</button>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit Modal -->
+  <div class="modal-overlay" id="editModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="editModalTitle">Edit Item</h2>
+        <button class="modal-close" id="editModalClose">✕</button>
+      </div>
+      <div class="modal-body" id="editModalBody"></div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="editModalCancel">Cancel</button>
+        <button class="btn btn-primary" id="editModalSave">Save Changes</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Custom Savings Type Modal -->
+  <div class="modal-overlay" id="customTypeModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Add Custom Savings Type</h2>
+        <button class="modal-close" id="customTypeModalClose">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group mb-4">
+          <label for="customSavingsTypeNameInput">Savings Type Name</label>
+          <input type="text" id="customSavingsTypeNameInput" placeholder="e.g. Gold ETF, Crypto, NPS, Real Estate">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="customTypeModalCancel">Cancel</button>
+        <button class="btn btn-primary" id="customTypeModalSave">Add Savings Type</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Day Details Modal -->
+  <div class="modal-overlay" id="dayModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="dayModalTitle">Expenses for Day</h2>
+        <button class="modal-close" id="dayModalClose">✕</button>
+      </div>
+      <div class="modal-body" id="dayModalBody"></div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="dayModalDone">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Month Modal -->
+  <div class="modal-overlay" id="addMonthModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Add New Month</h2>
+        <button class="modal-close" id="addMonthModalClose">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="newMonthSelect">Month</label>
+            <select id="newMonthSelect">
+              <option value="Jan">January</option>
+              <option value="Feb">February</option>
+              <option value="Mar">March</option>
+              <option value="Apr">April</option>
+              <option value="May">May</option>
+              <option value="Jun">June</option>
+              <option value="Jul">July</option>
+              <option value="Aug">August</option>
+              <option value="Sep">September</option>
+              <option value="Oct">October</option>
+              <option value="Nov">November</option>
+              <option value="Dec">December</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="newYearInput">Year</label>
+            <input type="number" id="newYearInput" value="2026" min="2000" max="2099">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="addMonthModalCancel">Cancel</button>
+        <button class="btn btn-primary" id="addMonthModalCreate">Create Month</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
