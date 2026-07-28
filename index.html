@@ -32,6 +32,12 @@
         <p id="authCardSubtext">Enter your email and password to access your isolated finances</p>
       </div>
 
+      <!-- Auth Error / Warning Banner -->
+      <div class="auth-error-banner" id="authErrorBanner" style="display: none;">
+        <span class="auth-error-icon">⚠️</span>
+        <span id="authErrorText" class="auth-error-text"></span>
+      </div>
+
       <!-- Auth Mode Nav Tabs -->
       <div class="auth-tabs mb-4">
         <button class="auth-tab-btn active" id="tabSignInBtn">Sign In</button>
@@ -70,7 +76,7 @@
           </div>
           <div class="form-group">
             <label for="registerLastNameInput">Last Name</label>
-            <input type="text" id="registerLastNameInput" placeholder="e.g. Jenkins" required autocomplete="family-name">
+            <input type="text" id="registerLastNameInput" placeholder="e.g. Jenkins" autocomplete="family-name">
           </div>
         </div>
 

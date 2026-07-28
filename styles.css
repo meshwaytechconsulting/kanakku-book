@@ -93,6 +93,29 @@ body {
 .auth-landing-header h1 { font-size: 1.4rem; font-weight: 800; color: var(--text-primary); letter-spacing: -0.02em; }
 .auth-landing-header p { font-size: 0.82rem; color: var(--text-tertiary); margin-top: 4px; }
 
+/* Auth Error / Warning Banner */
+.auth-error-banner {
+  background: rgba(241, 151, 144, 0.14);
+  border: 1px solid rgba(241, 151, 144, 0.35);
+  color: #fca5a5;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 0.82rem;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  animation: fadeIn 0.2s ease;
+}
+.auth-error-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+.auth-error-text {
+  line-height: 1.35;
+}
+
 /* Auth Tabs Nav */
 .auth-tabs {
   display: flex;

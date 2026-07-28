@@ -77,7 +77,21 @@ function getDaysInCurrentMonth() {
 // ─── Supabase Cross-Device Cloud Data Sync Engine ──────────────────
 const SUPABASE_URL = 'https://cqwteaieumdldqjpnvdz.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNxd3RlYWlldW1kbGRxanBudmR6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUyNTMyOTEsImV4cCI6MjEwMDgyOTI5MX0.xxCNuIaY88JQ1aRk_et-b8qqROBoRWA31hfnp2qH4dg';
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+let supabaseClient = null;
+function getSupabase() {
+  if (supabaseClient) return supabaseClient;
+  if (window.supabase && typeof window.supabase.createClient === 'function') {
+    try {
+      supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      return supabaseClient;
+    } catch (e) {
+      console.warn('Failed to initialize Supabase client:', e);
+      return null;
+    }
+  }
+  return null;
+}
 
 function updateCloudSyncBadge(statusText, isSuccess = true) {
   const badge = document.getElementById('cloudSyncStatusBadge');
@@ -86,11 +100,30 @@ function updateCloudSyncBadge(statusText, isSuccess = true) {
   badge.style.color = isSuccess ? 'var(--pastel-blue)' : 'var(--pastel-rose)';
 }
 
+function showAuthError(message) {
+  const banner = document.getElementById('authErrorBanner');
+  const text = document.getElementById('authErrorText');
+  if (banner && text) {
+    text.textContent = message;
+    banner.style.display = 'flex';
+  }
+  showToast(message, 'error');
+}
+
+function clearAuthError() {
+  const banner = document.getElementById('authErrorBanner');
+  if (banner) {
+    banner.style.display = 'none';
+  }
+}
+
 async function syncUsersToCloud() {
   try {
     const user = getAuthenticatedUser();
     if (!user) return;
-    const { error } = await supabase.from('app_users').upsert({
+    const sb = getSupabase();
+    if (!sb) return;
+    const { error } = await sb.from('app_users').upsert({
       id: user.id,
       email: user.email.toLowerCase(),
       first_name: user.firstName || '',
@@ -104,13 +137,14 @@ async function syncUsersToCloud() {
 }
 
 async function fetchUsersFromCloud() {
-  // This is called during sign-in to check if user exists in cloud
-  // We don't bulk-fetch all users; we query by email during signIn()
+  // Queries performed dynamically by email on signIn
 }
 
 async function fetchCloudUserByEmail(email) {
   try {
-    const { data, error } = await supabase
+    const sb = getSupabase();
+    if (!sb) return null;
+    const { data, error } = await sb
       .from('app_users')
       .select('*')
       .eq('email', email.toLowerCase())
@@ -132,7 +166,9 @@ async function syncUserDataToCloud(userId) {
   if (!userId) return;
   updateCloudSyncBadge('☁️ Syncing...', true);
   try {
-    const { error } = await supabase.from('user_data').upsert({
+    const sb = getSupabase();
+    if (!sb) { updateCloudSyncBadge('☁️ Saved Locally', true); return; }
+    const { error } = await sb.from('user_data').upsert({
       user_id: userId,
       data: state,
       updated_at: new Date().toISOString(),
@@ -152,7 +188,9 @@ async function fetchUserDataFromCloud(userId, isManual = false) {
   if (!userId) return;
   updateCloudSyncBadge('☁️ Fetching...', true);
   try {
-    const { data, error } = await supabase
+    const sb = getSupabase();
+    if (!sb) { updateCloudSyncBadge('☁️ Saved Locally', true); return; }
+    const { data, error } = await sb
       .from('user_data')
       .select('data')
       .eq('user_id', userId)
@@ -269,8 +307,20 @@ async function checkAuthSession() {
 }
 
 async function signIn(email, password) {
-  const cleanEmail = email.trim().toLowerCase();
-  const pHash = hashPassword(password);
+  clearAuthError();
+  const cleanEmail = (email || '').trim().toLowerCase();
+  const pwd = (password || '').trim();
+
+  if (!cleanEmail) {
+    showAuthError('Please enter your email address.');
+    return false;
+  }
+  if (!pwd) {
+    showAuthError('Please enter your password.');
+    return false;
+  }
+
+  const pHash = hashPassword(pwd);
 
   let matched = authState.users.find(u => u.email.toLowerCase() === cleanEmail && u.passwordHash === pHash);
 
@@ -289,7 +339,7 @@ async function signIn(email, password) {
   }
 
   if (!matched) {
-    showToast('Invalid email or password', 'error');
+    showAuthError('Incorrect email address or password. Please check your credentials and try again.');
     return false;
   }
 
@@ -301,26 +351,29 @@ async function signIn(email, password) {
 }
 
 async function registerAccount(firstName, lastName, email, password, confirmPassword) {
-  const cleanFirstName = firstName.trim();
-  const cleanLastName = lastName.trim();
-  const cleanEmail = email.trim().toLowerCase();
+  clearAuthError();
+  const cleanFirstName = (firstName || '').trim();
+  const cleanLastName = (lastName || '').trim();
+  const cleanEmail = (email || '').trim().toLowerCase();
+  const pwd = (password || '').trim();
+  const confirmPwd = (confirmPassword || '').trim();
 
-  if (!cleanFirstName) { showToast('Enter First Name', 'error'); return false; }
-  if (!cleanEmail || !cleanEmail.includes('@')) { showToast('Enter valid Email Address', 'error'); return false; }
-  if (!password || password.length < 4) { showToast('Password must be at least 4 characters', 'error'); return false; }
-  if (password !== confirmPassword) { showToast('Passwords do not match', 'error'); return false; }
+  if (!cleanFirstName) { showAuthError('Please enter your First Name.'); return false; }
+  if (!cleanEmail || !cleanEmail.includes('@')) { showAuthError('Please enter a valid Email Address.'); return false; }
+  if (!pwd || pwd.length < 4) { showAuthError('Password must be at least 4 characters.'); return false; }
+  if (pwd !== confirmPwd) { showAuthError('Passwords do not match. Please re-enter.'); return false; }
 
   // Check locally
   const existsLocal = authState.users.some(u => u.email.toLowerCase() === cleanEmail);
   if (existsLocal) {
-    showToast(`An account with email ${cleanEmail} already exists. Please sign in.`, 'error');
+    showAuthError(`An account with email "${cleanEmail}" already exists. Please sign in instead.`);
     return false;
   }
 
   // Check cloud for duplicate
   const cloudUser = await fetchCloudUserByEmail(cleanEmail);
   if (cloudUser) {
-    showToast(`An account with email ${cleanEmail} already exists in the cloud. Please sign in.`, 'error');
+    showAuthError(`An account with email "${cleanEmail}" already exists in the cloud. Please sign in instead.`);
     return false;
   }
 
@@ -332,7 +385,7 @@ async function registerAccount(firstName, lastName, email, password, confirmPass
     lastName: cleanLastName,
     name: fullName,
     email: cleanEmail,
-    passwordHash: hashPassword(password),
+    passwordHash: hashPassword(pwd),
     avatar: '💼',
   };
 
@@ -2134,6 +2187,7 @@ function createMonthFromModal() {
 
 // ─── Auth View Mode Switcher ──────────────────
 function switchAuthMode(mode) {
+  clearAuthError();
   const signInForm = document.getElementById('signInForm');
   const registerForm = document.getElementById('registerForm');
   const tabSignInBtn = document.getElementById('tabSignInBtn');
@@ -2212,21 +2266,51 @@ function setupEventListeners() {
   });
 
   // Auth Submit Handlers
-  document.getElementById('signInForm').addEventListener('submit', (e) => {
+  document.getElementById('signInForm').addEventListener('submit', async (e) => {
     e.preventDefault();
+    clearAuthError();
+    const submitBtn = document.getElementById('signInSubmitBtn');
     const email = document.getElementById('loginEmailInput').value;
     const pwd = document.getElementById('loginPasswordInput').value;
-    signIn(email, pwd);
+
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Signing In...'; }
+    try {
+      await signIn(email, pwd);
+    } catch (err) {
+      console.error('Sign in error:', err);
+      showAuthError('An unexpected error occurred during sign in. Please try again.');
+    } finally {
+      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Sign In to Dashboard →'; }
+    }
   });
 
-  document.getElementById('registerForm').addEventListener('submit', (e) => {
+  document.getElementById('registerForm').addEventListener('submit', async (e) => {
     e.preventDefault();
+    clearAuthError();
+    const submitBtn = document.getElementById('registerSubmitBtn');
     const fName = document.getElementById('registerFirstNameInput').value;
     const lName = document.getElementById('registerLastNameInput').value;
     const email = document.getElementById('registerEmailInput').value;
     const pwd = document.getElementById('registerPasswordInput').value;
     const confirmPwd = document.getElementById('registerConfirmPasswordInput').value;
-    registerAccount(fName, lName, email, pwd, confirmPwd);
+
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Creating Account...'; }
+    try {
+      await registerAccount(fName, lName, email, pwd, confirmPwd);
+    } catch (err) {
+      console.error('Register error:', err);
+      showAuthError('An unexpected error occurred during account creation. Please try again.');
+    } finally {
+      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = '+ Create Account & Sign In'; }
+    }
+  });
+
+  // Clear auth errors when user types in inputs
+  ['loginEmailInput', 'loginPasswordInput', 'registerFirstNameInput', 'registerLastNameInput', 'registerEmailInput', 'registerPasswordInput', 'registerConfirmPasswordInput'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('input', clearAuthError);
+    }
   });
 
   // Sidebar & Mobile User Account Profile Click -> Open Settings Modal
