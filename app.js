@@ -697,6 +697,21 @@ function getDailyBreakdown(d) {
   return { totals, itemsMap, dateLabelsMap, daysInMonth, dailyTotal };
 }
 
+// ─── Entry Sorting Helper (Descending by Date + CreatedAt Datetime) ──
+function sortEntriesDesc(a, b) {
+  const dateA = a.date || '1970-01-01';
+  const dateB = b.date || '1970-01-01';
+
+  if (dateA !== dateB) {
+    return dateB.localeCompare(dateA);
+  }
+
+  const timeA = a.createdAt ? new Date(a.createdAt).getTime() : (a.timestamp || 0);
+  const timeB = b.createdAt ? new Date(b.createdAt).getTime() : (b.timestamp || 0);
+
+  return timeB - timeA;
+}
+
 // ─── Cumulative Computations ──
 function getInstrumentCumulativeSavings(savingsList) {
   const instruments = state.registeredSavingsInstruments || [];
@@ -706,7 +721,7 @@ function getInstrumentCumulativeSavings(savingsList) {
     const instEntries = entries.filter(e => e.instrumentId === inst.id || e.accountNumber === inst.accountNumber || (e.name && e.name.toLowerCase() === inst.name.toLowerCase()));
 
     const totalAmount = instEntries.reduce((s, item) => s + (Number(item.amount) || 0), 0);
-    instEntries.sort((a, b) => new Date(b.date || '1970-01-01').getTime() - new Date(a.date || '1970-01-01').getTime());
+    instEntries.sort(sortEntriesDesc);
 
     return {
       instrument: inst,
@@ -725,7 +740,7 @@ function getAccountLatestBalances(banksList) {
     const accEntries = entries.filter(e => e.accountId === acc.id || e.accountNumber === acc.accountNumber || (e.name && e.name.toLowerCase() === acc.bankName.toLowerCase()));
 
     if (accEntries.length > 0) {
-      accEntries.sort((a, b) => new Date(b.date || '1970-01-01').getTime() - new Date(a.date || '1970-01-01').getTime());
+      accEntries.sort(sortEntriesDesc);
       const latest = accEntries[0];
       return {
         account: acc,
@@ -738,6 +753,11 @@ function getAccountLatestBalances(banksList) {
         account: acc,
         latestBalance: 0,
         latestDate: 'No entries',
+        entryCount: 0,
+      };
+    }
+  });
+}
         entryCount: 0,
       };
     }
@@ -1239,6 +1259,7 @@ function createBankAccount() {
     const d = getCurrentData();
     d.banks.push({
       date: getTodayDate(),
+      createdAt: new Date().toISOString(),
       accountId: newAcc.id,
       bankName: newAcc.bankName,
       accountNumber: newAcc.accountNumber,
@@ -1269,6 +1290,7 @@ function recordBankBalance() {
   const d = getCurrentData();
   d.banks.push({
     date,
+    createdAt: new Date().toISOString(),
     accountId: acc.id,
     bankName: acc.bankName,
     accountNumber: acc.accountNumber,
@@ -1345,17 +1367,21 @@ function renderBanks() {
   if (!d.banks || d.banks.length === 0) {
     tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">🏦</div><p>No balance entries recorded</p></div></td></tr>`;
   } else {
-    tbody.innerHTML = d.banks.map((b, i) => `
+    const sortedBanks = d.banks
+      .map((item, originalIndex) => ({ item, originalIndex }))
+      .sort((a, b) => sortEntriesDesc(a.item, b.item));
+
+    tbody.innerHTML = sortedBanks.map(({ item: b, originalIndex }, displayIdx) => `
       <tr>
-        <td class="text-muted">${i + 1}</td>
+        <td class="text-muted">${displayIdx + 1}</td>
         <td class="text-muted">${b.date || getTodayDate()}</td>
         <td><strong>${escapeHtml(b.bankName || b.name)}</strong></td>
         <td><span class="bank-acc-num-badge">${escapeHtml(formatAccountNum(b.accountNumber))}</span></td>
         <td class="amount positive">${fmt(b.balance)}</td>
         <td>
           <div class="actions">
-            <button class="btn-icon edit" onclick="openEditModal('banks', ${i})" title="Edit">✏️</button>
-            <button class="btn-icon delete" onclick="deleteItem('banks', ${i})" title="Delete">🗑️</button>
+            <button class="btn-icon edit" onclick="openEditModal('banks', ${originalIndex})" title="Edit">✏️</button>
+            <button class="btn-icon delete" onclick="deleteItem('banks', ${originalIndex})" title="Delete">🗑️</button>
           </div>
         </td>
       </tr>
@@ -1531,6 +1557,7 @@ function createSavingsInstrument() {
     const d = getCurrentData();
     const entry = {
       date: getTodayDate(),
+      createdAt: new Date().toISOString(),
       instrumentId: newInst.id,
       type: newInst.type,
       accountNumber: newInst.accountNumber,
@@ -1567,6 +1594,7 @@ function recordSavingsEntry() {
   const d = getCurrentData();
   const entry = {
     date,
+    createdAt: new Date().toISOString(),
     instrumentId: inst.id,
     type: inst.type,
     accountNumber: inst.accountNumber,
@@ -1659,9 +1687,13 @@ function renderSavings() {
   if (!d.savings || d.savings.length === 0) {
     tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">🏆</div><p>No savings or deposit logs recorded</p></div></td></tr>`;
   } else {
-    tbody.innerHTML = d.savings.map((s, i) => `
+    const sortedSavings = d.savings
+      .map((item, originalIndex) => ({ item, originalIndex }))
+      .sort((a, b) => sortEntriesDesc(a.item, b.item));
+
+    tbody.innerHTML = sortedSavings.map(({ item: s, originalIndex }, displayIdx) => `
       <tr>
-        <td class="text-muted">${i + 1}</td>
+        <td class="text-muted">${displayIdx + 1}</td>
         <td class="text-muted">${s.date || getTodayDate()}</td>
         <td><span style="padding:2px 8px;border-radius:4px;font-size:0.72rem;font-weight:600;background:${s.type === 'FD' || s.type === 'RD' ? 'rgba(244, 211, 94, 0.15);color:#f4d35e' : 'rgba(163, 196, 243, 0.15);color:#a3c4f3'}">${escapeHtml(s.type || 'Savings')}</span></td>
         <td><span class="deposit-acc-num-badge">${escapeHtml(formatAccountNum(s.accountNumber))}</span></td>
@@ -1669,8 +1701,8 @@ function renderSavings() {
         <td class="amount positive">${fmt(s.amount)}</td>
         <td>
           <div class="actions">
-            <button class="btn-icon edit" onclick="openEditModal('savings', ${i})" title="Edit">✏️</button>
-            <button class="btn-icon delete" onclick="deleteItem('savings', ${i})" title="Delete">🗑️</button>
+            <button class="btn-icon edit" onclick="openEditModal('savings', ${originalIndex})" title="Edit">✏️</button>
+            <button class="btn-icon delete" onclick="deleteItem('savings', ${originalIndex})" title="Delete">🗑️</button>
           </div>
         </td>
       </tr>
@@ -1725,7 +1757,7 @@ function renderDeposits() {
 
   const cumulativeList = [];
   map.forEach(group => {
-    group.entries.sort((a, b) => new Date(b.date || '1970-01-01').getTime() - new Date(a.date || '1970-01-01').getTime());
+    group.entries.sort(sortEntriesDesc);
     cumulativeList.push({
       type: group.type,
       accountNumber: group.accountNumber,
@@ -1764,9 +1796,13 @@ function renderDeposits() {
   if (uniqueDepositEntries.length === 0) {
     tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">📈</div><p>No deposit logs recorded</p></div></td></tr>`;
   } else {
-    tbody.innerHTML = uniqueDepositEntries.map((dp, i) => `
+    const sortedDeposits = uniqueDepositEntries
+      .map((item, originalIndex) => ({ item, originalIndex }))
+      .sort((a, b) => sortEntriesDesc(a.item, b.item));
+
+    tbody.innerHTML = sortedDeposits.map(({ item: dp, originalIndex }, displayIdx) => `
       <tr>
-        <td class="text-muted">${i + 1}</td>
+        <td class="text-muted">${displayIdx + 1}</td>
         <td class="text-muted">${dp.date || getTodayDate()}</td>
         <td><span style="padding:2px 8px;border-radius:4px;font-size:0.72rem;font-weight:600;background:${dp.type === 'FD' ? 'rgba(163, 196, 243, 0.15);color:#a3c4f3' : 'rgba(244, 211, 94, 0.15);color:#f4d35e'}">${escapeHtml(dp.type)}</span></td>
         <td><span class="deposit-acc-num-badge">${escapeHtml(formatAccountNum(dp.accountNumber))}</span></td>
@@ -1774,8 +1810,8 @@ function renderDeposits() {
         <td class="amount positive">${fmt(dp.amount)}</td>
         <td>
           <div class="actions">
-            <button class="btn-icon edit" onclick="openEditModal('deposits', ${i})" title="Edit">✏️</button>
-            <button class="btn-icon delete" onclick="deleteItem('deposits', ${i})" title="Delete">🗑️</button>
+            <button class="btn-icon edit" onclick="openEditModal('deposits', ${originalIndex})" title="Edit">✏️</button>
+            <button class="btn-icon delete" onclick="deleteItem('deposits', ${originalIndex})" title="Delete">🗑️</button>
           </div>
         </td>
       </tr>
@@ -1797,16 +1833,20 @@ function renderWants() {
   if (!d.wants || d.wants.length === 0) {
     tbody.innerHTML = `<tr><td colspan="5"><div class="empty-state"><div class="empty-icon">🛍️</div><p>No wants expenses added yet</p></div></td></tr>`;
   } else {
-    tbody.innerHTML = d.wants.map((w, i) => `
+    const sortedWants = d.wants
+      .map((item, originalIndex) => ({ item, originalIndex }))
+      .sort((a, b) => sortEntriesDesc(a.item, b.item));
+
+    tbody.innerHTML = sortedWants.map(({ item: w, originalIndex }, displayIdx) => `
       <tr>
-        <td class="text-muted">${i + 1}</td>
+        <td class="text-muted">${displayIdx + 1}</td>
         <td class="text-muted">${w.date || getTodayDate()}</td>
         <td>${escapeHtml(w.name)}</td>
         <td class="amount">${fmt(w.amount)}</td>
         <td>
           <div class="actions">
-            <button class="btn-icon edit" onclick="openEditModal('wants', ${i})" title="Edit">✏️</button>
-            <button class="btn-icon delete" onclick="deleteItem('wants', ${i})" title="Delete">🗑️</button>
+            <button class="btn-icon edit" onclick="openEditModal('wants', ${originalIndex})" title="Edit">✏️</button>
+            <button class="btn-icon delete" onclick="deleteItem('wants', ${originalIndex})" title="Delete">🗑️</button>
           </div>
         </td>
       </tr>
@@ -1829,7 +1869,7 @@ function addWants() {
   if (isNaN(amount) || amount <= 0) { showToast('Enter valid amount', 'error'); return; }
 
   const d = getCurrentData();
-  d.wants.push({ date, name, amount });
+  d.wants.push({ date, createdAt: new Date().toISOString(), name, amount });
   saveToStorage();
   renderWants();
 
@@ -1849,16 +1889,20 @@ function renderNeeds() {
   if (!d.needs || d.needs.length === 0) {
     tbody.innerHTML = `<tr><td colspan="5"><div class="empty-state"><div class="empty-icon">📋</div><p>No needs expenses added yet</p></div></td></tr>`;
   } else {
-    tbody.innerHTML = d.needs.map((n, i) => `
+    const sortedNeeds = d.needs
+      .map((item, originalIndex) => ({ item, originalIndex }))
+      .sort((a, b) => sortEntriesDesc(a.item, b.item));
+
+    tbody.innerHTML = sortedNeeds.map(({ item: n, originalIndex }, displayIdx) => `
       <tr>
-        <td class="text-muted">${i + 1}</td>
+        <td class="text-muted">${displayIdx + 1}</td>
         <td class="text-muted">${n.date || getTodayDate()}</td>
         <td>${escapeHtml(n.name)}</td>
         <td class="amount">${fmt(n.amount)}</td>
         <td>
           <div class="actions">
-            <button class="btn-icon edit" onclick="openEditModal('needs', ${i})" title="Edit">✏️</button>
-            <button class="btn-icon delete" onclick="deleteItem('needs', ${i})" title="Delete">🗑️</button>
+            <button class="btn-icon edit" onclick="openEditModal('needs', ${originalIndex})" title="Edit">✏️</button>
+            <button class="btn-icon delete" onclick="deleteItem('needs', ${originalIndex})" title="Delete">🗑️</button>
           </div>
         </td>
       </tr>
@@ -1881,7 +1925,7 @@ function addNeeds() {
   if (isNaN(amount) || amount <= 0) { showToast('Enter valid amount', 'error'); return; }
 
   const d = getCurrentData();
-  d.needs.push({ date, name, amount });
+  d.needs.push({ date, createdAt: new Date().toISOString(), name, amount });
   saveToStorage();
   renderNeeds();
 
