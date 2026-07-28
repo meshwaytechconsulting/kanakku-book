@@ -825,6 +825,19 @@ function navigateTo(section) {
     target.classList.add('active');
   }
 
+  // Custom date range is not needed for Daily Expenses (always month-based)
+  const filterToggle = document.querySelector('.filter-mode-toggle');
+  const customPicker = document.getElementById('customRangePicker');
+  if (section === 'daily') {
+    if (filterToggle) filterToggle.style.display = 'none';
+    if (customPicker) customPicker.style.display = 'none';
+  } else {
+    if (filterToggle) filterToggle.style.display = 'flex';
+    if (state.viewMode === 'custom' && customPicker) {
+      customPicker.style.display = 'flex';
+    }
+  }
+
   closeMobileSidebar();
   renderSection(section);
 }
@@ -1388,7 +1401,7 @@ function renderBanks() {
 
 // ─── Daily Expenses Read-Only Dashboard ────────
 function renderDaily() {
-  const d = getFilteredData();
+  const d = getCurrentData();
   const breakdown = getDailyBreakdown(d);
   const grid = document.getElementById('dailyGrid');
 
@@ -1415,7 +1428,7 @@ function renderDaily() {
 }
 
 function showDayDetails(dayNum) {
-  const d = getFilteredData();
+  const d = getCurrentData();
   const breakdown = getDailyBreakdown(d);
   const items = breakdown.itemsMap[dayNum] || [];
   const total = breakdown.totals[dayNum] || 0;
