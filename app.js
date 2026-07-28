@@ -758,11 +758,6 @@ function getAccountLatestBalances(banksList) {
     }
   });
 }
-        entryCount: 0,
-      };
-    }
-  });
-}
 
 function getComputedValues() {
   const d = getFilteredData();
