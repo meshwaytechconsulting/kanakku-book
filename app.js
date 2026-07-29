@@ -97,7 +97,7 @@ function updateCloudSyncBadge(statusText, isSuccess = true) {
   const badge = document.getElementById('cloudSyncStatusBadge');
   if (!badge) return;
   badge.textContent = statusText;
-  badge.style.color = isSuccess ? 'var(--pastel-blue)' : 'var(--pastel-rose)';
+  badge.style.color = isSuccess ? 'var(--accent)' : 'var(--red)';
 }
 
 function showAuthError(message) {
@@ -283,6 +283,14 @@ let editContext = null;
 
 // ─── Initialization ───────────────────────────
 async function init() {
+  // Restore saved theme preference
+  const savedTheme = localStorage.getItem('kanakku_theme');
+  if (savedTheme === 'light') {
+    document.documentElement.setAttribute('data-theme', 'light');
+    const themeBtn = document.getElementById('themeToggleBtn');
+    if (themeBtn) { themeBtn.textContent = '☀️'; themeBtn.title = 'Switch to Dark Theme'; }
+  }
+
   loadUsersState();
   await checkAuthSession();
   setDefaultDates();
@@ -847,7 +855,6 @@ function renderSection(section) {
     case 'dashboard': renderDashboard(); break;
     case 'income': renderIncome(); break;
     case 'banks': renderBanks(); break;
-    case 'deposits': renderDeposits(); break;
     case 'wants': renderWants(); break;
     case 'needs': renderNeeds(); break;
     case 'daily': renderDaily(); break;
@@ -989,7 +996,7 @@ function renderDashboard() {
       </div>
       <div class="banner-row">
         <div class="banner-main-val ${isNegative ? 'text-danger' : 'text-success'}">
-          ${fmt(v.netRemainingIncome)} <span style="font-size:0.85rem;font-weight:500;color:var(--text-tertiary);">Net Remaining Income</span>
+          ${fmt(v.netRemainingIncome)} <span style="font-size:0.85rem;font-weight:500;color:var(--text-3);">Net Remaining Income</span>
         </div>
         <div class="banner-breakdown">
           <div class="breakdown-item">
@@ -1363,7 +1370,7 @@ function renderBanks() {
           <div class="bank-latest-date">As of ${item.latestDate}</div>
           <div class="bank-bal-value">${fmt(item.latestBalance)}</div>
           <div class="bank-card-footer" style="margin-top:10px;display:flex;justify-content:space-between;align-items:center;">
-            <span style="font-size:0.75rem;color:var(--text-tertiary);">${item.entryCount} balance log${item.entryCount !== 1 ? 's' : ''}</span>
+            <span style="font-size:0.75rem;color:var(--text-3);">${item.entryCount} balance log${item.entryCount !== 1 ? 's' : ''}</span>
             <button class="btn-icon delete" onclick="deleteBankAccount('${item.account.id}')" title="Delete Account">🗑️</button>
           </div>
         </div>
@@ -1580,7 +1587,6 @@ function createSavingsInstrument() {
 
   saveToStorage();
   renderSavings();
-  renderDeposits();
 
   document.getElementById('newSavingsName').value = '';
   document.getElementById('newSavingsAccNum').value = '';
@@ -1617,7 +1623,6 @@ function recordSavingsEntry() {
 
   saveToStorage();
   renderSavings();
-  renderDeposits();
 
   document.getElementById('savingsEntryAmountInput').value = '';
   showToast(`Recorded ${fmt(amount)} for ${inst.name}`, 'success');
@@ -1641,7 +1646,6 @@ function deleteSavingsInstrument(instId) {
 
   saveToStorage();
   renderSavings();
-  renderDeposits();
   showToast('Savings instrument deleted', 'info');
 }
 
@@ -1649,13 +1653,13 @@ function renderSavings() {
   const d = getFilteredData();
   const v = getComputedValues();
 
-  renderCategoryBudget('savingsBudget', 'Savings Target', v.savingsBudget, v.savingsTotal, 'var(--pastel-gold)');
+  renderCategoryBudget('savingsBudget', 'Investment Target', v.savingsBudget, v.savingsTotal, 'var(--gold)');
   populateSavingsTypeSelect();
 
   const selectEl = document.getElementById('selectSavingsInstrumentId');
   if (selectEl) {
     if (state.registeredSavingsInstruments.length === 0) {
-      selectEl.innerHTML = `<option value="">No Savings Instruments Created Yet</option>`;
+      selectEl.innerHTML = `<option value="">No Instruments Created Yet</option>`;
     } else {
       selectEl.innerHTML = state.registeredSavingsInstruments.map(inst => `
         <option value="${inst.id}">${escapeHtml(inst.name)} [${escapeHtml(inst.type)}] (${formatAccountNum(inst.accountNumber)})</option>
@@ -1663,6 +1667,7 @@ function renderSavings() {
     }
   }
 
+  // ─── Registered Instruments Cards ───
   const cardsGrid = document.getElementById('savingsCardsGrid');
   const cumulativeSavings = getInstrumentCumulativeSavings(d.savings);
 
@@ -1670,7 +1675,7 @@ function renderSavings() {
     if (cumulativeSavings.length === 0) {
       cardsGrid.innerHTML = `
         <div class="deposit-account-card" style="grid-column: 1 / -1; text-align: center; padding: 24px;">
-          <p class="text-muted">No registered savings instruments yet. Use the form above to add a new instrument.</p>
+          <p class="text-muted">No registered instruments yet. Use the form above to add one.</p>
         </div>
       `;
     } else {
@@ -1680,10 +1685,10 @@ function renderSavings() {
             <span class="deposit-name-title">${escapeHtml(item.instrument.name)}</span>
             <span class="deposit-type-badge ${item.instrument.type}">${escapeHtml(item.instrument.type)}</span>
           </div>
-          <div style="font-size:0.75rem;color:var(--text-tertiary);margin-bottom:8px;">Ref: <span class="deposit-acc-num-badge">${escapeHtml(formatAccountNum(item.instrument.accountNumber))}</span></div>
+          <div style="font-size:0.75rem;color:var(--text-3);margin-bottom:8px;">Ref: <span class="deposit-acc-num-badge">${escapeHtml(formatAccountNum(item.instrument.accountNumber))}</span></div>
           <div class="deposit-cum-value">${fmt(item.cumulativeAmount)}</div>
-          <div style="font-size:0.75rem;color:var(--text-tertiary);border-top:1px solid rgba(255,255,255,0.04);padding-top:8px;margin-top:8px;display:flex;justify-content:space-between;align-items:center;">
-            <span>${item.entryCount} contribution log${item.entryCount !== 1 ? 's' : ''}</span>
+          <div style="font-size:0.75rem;color:var(--text-3);border-top:1px solid var(--border);padding-top:8px;margin-top:8px;display:flex;justify-content:space-between;align-items:center;">
+            <span>${item.entryCount} contribution${item.entryCount !== 1 ? 's' : ''}</span>
             <button class="btn-icon delete" onclick="deleteSavingsInstrument('${item.instrument.id}')" title="Delete Instrument">🗑️</button>
           </div>
         </div>
@@ -1691,9 +1696,72 @@ function renderSavings() {
     }
   }
 
+  // ─── Cumulative FD/RD Deposits Overview (merged from Deposits page) ───
+  const cumulativeGrid = document.getElementById('cumulativeDepositsGrid');
+  const depositEntries = (d.deposits || []).concat((d.savings || []).filter(s => s.type === 'FD' || s.type === 'RD'));
+
+  const uniqueDepositEntries = [];
+  const seenKeys = new Set();
+  depositEntries.forEach(item => {
+    const key = `${item.date}_${item.accountNumber}_${item.amount}_${item.type}`;
+    if (!seenKeys.has(key)) {
+      seenKeys.add(key);
+      uniqueDepositEntries.push(item);
+    }
+  });
+
+  const map = new Map();
+  uniqueDepositEntries.forEach(dp => {
+    const accNum = (dp.accountNumber || 'N/A').trim().toUpperCase();
+    const type = (dp.type || 'FD').toUpperCase();
+    const key = `${type}_${accNum}`;
+    if (!map.has(key)) {
+      map.set(key, { type, accountNumber: dp.accountNumber || 'N/A', name: dp.name || 'Deposit Account', cumulativeAmount: 0, entries: [] });
+    }
+    const group = map.get(key);
+    group.cumulativeAmount += Number(dp.amount) || 0;
+    group.entries.push(dp);
+  });
+
+  const cumulativeList = [];
+  map.forEach(group => {
+    group.entries.sort(sortEntriesDesc);
+    cumulativeList.push({
+      type: group.type, accountNumber: group.accountNumber, name: group.name,
+      cumulativeAmount: group.cumulativeAmount,
+      latestDate: group.entries[0]?.date || getTodayDate(),
+      entryCount: group.entries.length,
+    });
+  });
+
+  if (cumulativeGrid) {
+    if (cumulativeList.length === 0) {
+      cumulativeGrid.innerHTML = `
+        <div class="deposit-account-card" style="grid-column: 1 / -1; text-align: center; padding: 24px;">
+          <p class="text-muted">No FD or RD entries yet. Create an FD or RD instrument above.</p>
+        </div>
+      `;
+    } else {
+      cumulativeGrid.innerHTML = cumulativeList.map(item => `
+        <div class="deposit-account-card">
+          <div class="deposit-header-row">
+            <span class="deposit-name-title">${escapeHtml(item.name)}</span>
+            <span class="deposit-type-badge ${item.type}">${escapeHtml(item.type)}</span>
+          </div>
+          <div style="font-size:0.75rem;color:var(--text-3);margin-bottom:8px;">Acc: <span class="deposit-acc-num-badge">${escapeHtml(formatAccountNum(item.accountNumber))}</span></div>
+          <div class="deposit-cum-value">${fmt(item.cumulativeAmount)}</div>
+          <div style="font-size:0.75rem;color:var(--text-3);border-top:1px solid var(--border);padding-top:8px;margin-top:8px;">
+            ${item.entryCount} deposit${item.entryCount !== 1 ? 's' : ''} (Latest: ${item.latestDate})
+          </div>
+        </div>
+      `).join('');
+    }
+  }
+
+  // ─── Savings & Deposits Log Table ───
   const tbody = document.getElementById('savingsTableBody');
   if (!d.savings || d.savings.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">🏆</div><p>No savings or deposit logs recorded</p></div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">📈</div><p>No investment or deposit logs recorded</p></div></td></tr>`;
   } else {
     const sortedSavings = d.savings
       .map((item, originalIndex) => ({ item, originalIndex }))
@@ -1703,7 +1771,7 @@ function renderSavings() {
       <tr>
         <td class="text-muted">${displayIdx + 1}</td>
         <td class="text-muted">${s.date || getTodayDate()}</td>
-        <td><span style="padding:2px 8px;border-radius:4px;font-size:0.72rem;font-weight:600;background:${s.type === 'FD' || s.type === 'RD' ? 'rgba(244, 211, 94, 0.15);color:#f4d35e' : 'rgba(163, 196, 243, 0.15);color:#a3c4f3'}">${escapeHtml(s.type || 'Savings')}</span></td>
+        <td><span style="padding:2px 8px;border-radius:4px;font-size:0.72rem;font-weight:600;background:${s.type === 'FD' || s.type === 'RD' ? 'var(--gold-soft);color:var(--gold)' : 'var(--accent-soft);color:var(--accent)'}">${escapeHtml(s.type || 'Investment')}</span></td>
         <td><span class="deposit-acc-num-badge">${escapeHtml(formatAccountNum(s.accountNumber))}</span></td>
         <td>${escapeHtml(s.name)}</td>
         <td class="amount positive">${fmt(s.amount)}</td>
@@ -1725,118 +1793,13 @@ function renderSavings() {
   document.getElementById('savingsBalanceValue').textContent = fmt(bal);
 }
 
-// ─── Deposits Dashboard ───────────────────────
-function renderDeposits() {
-  const d = getFilteredData();
-
-  const cumulativeGrid = document.getElementById('cumulativeDepositsGrid');
-  const depositEntries = (d.deposits || []).concat((d.savings || []).filter(s => s.type === 'FD' || s.type === 'RD'));
-
-  const uniqueDepositEntries = [];
-  const seenKeys = new Set();
-  depositEntries.forEach(item => {
-    const key = `${item.date}_${item.accountNumber}_${item.amount}_${item.type}`;
-    if (!seenKeys.has(key)) {
-      seenKeys.add(key);
-      uniqueDepositEntries.push(item);
-    }
-  });
-
-  const map = new Map();
-  uniqueDepositEntries.forEach(dp => {
-    const accNum = (dp.accountNumber || 'N/A').trim().toUpperCase();
-    const type = (dp.type || 'FD').toUpperCase();
-    const key = `${type}_${accNum}`;
-
-    if (!map.has(key)) {
-      map.set(key, {
-        type,
-        accountNumber: dp.accountNumber || 'N/A',
-        name: dp.name || 'Deposit Account',
-        cumulativeAmount: 0,
-        entries: [],
-      });
-    }
-
-    const group = map.get(key);
-    group.cumulativeAmount += Number(dp.amount) || 0;
-    group.entries.push(dp);
-  });
-
-  const cumulativeList = [];
-  map.forEach(group => {
-    group.entries.sort(sortEntriesDesc);
-    cumulativeList.push({
-      type: group.type,
-      accountNumber: group.accountNumber,
-      name: group.name,
-      cumulativeAmount: group.cumulativeAmount,
-      latestDate: group.entries[0]?.date || getTodayDate(),
-      entryCount: group.entries.length,
-    });
-  });
-
-  if (cumulativeGrid) {
-    if (cumulativeList.length === 0) {
-      cumulativeGrid.innerHTML = `
-        <div class="deposit-account-card" style="grid-column: 1 / -1; text-align: center; padding: 24px;">
-          <p class="text-muted">No FD or RD deposit entries recorded yet. Add an FD or RD under the Savings section.</p>
-        </div>
-      `;
-    } else {
-      cumulativeGrid.innerHTML = cumulativeList.map(item => `
-        <div class="deposit-account-card">
-          <div class="deposit-header-row">
-            <span class="deposit-name-title">${escapeHtml(item.name)}</span>
-            <span class="deposit-type-badge ${item.type}">${escapeHtml(item.type)}</span>
-          </div>
-          <div style="font-size:0.75rem;color:var(--text-tertiary);margin-bottom:8px;">Acc: <span class="deposit-acc-num-badge">${escapeHtml(formatAccountNum(item.accountNumber))}</span></div>
-          <div class="deposit-cum-value">${fmt(item.cumulativeAmount)}</div>
-          <div style="font-size:0.75rem;color:var(--text-tertiary);border-top:1px solid rgba(255,255,255,0.04);padding-top:8px;margin-top:8px;">
-            ${item.entryCount} deposit payment log${item.entryCount !== 1 ? 's' : ''} (Latest: ${item.latestDate})
-          </div>
-        </div>
-      `).join('');
-    }
-  }
-
-  const tbody = document.getElementById('depositsTableBody');
-  if (uniqueDepositEntries.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">📈</div><p>No deposit logs recorded</p></div></td></tr>`;
-  } else {
-    const sortedDeposits = uniqueDepositEntries
-      .map((item, originalIndex) => ({ item, originalIndex }))
-      .sort((a, b) => sortEntriesDesc(a.item, b.item));
-
-    tbody.innerHTML = sortedDeposits.map(({ item: dp, originalIndex }, displayIdx) => `
-      <tr>
-        <td class="text-muted">${displayIdx + 1}</td>
-        <td class="text-muted">${dp.date || getTodayDate()}</td>
-        <td><span style="padding:2px 8px;border-radius:4px;font-size:0.72rem;font-weight:600;background:${dp.type === 'FD' ? 'rgba(163, 196, 243, 0.15);color:#a3c4f3' : 'rgba(244, 211, 94, 0.15);color:#f4d35e'}">${escapeHtml(dp.type)}</span></td>
-        <td><span class="deposit-acc-num-badge">${escapeHtml(formatAccountNum(dp.accountNumber))}</span></td>
-        <td>${escapeHtml(dp.name)}</td>
-        <td class="amount positive">${fmt(dp.amount)}</td>
-        <td>
-          <div class="actions">
-            <button class="btn-icon edit" onclick="openEditModal('deposits', ${originalIndex})" title="Edit">✏️</button>
-            <button class="btn-icon delete" onclick="deleteItem('deposits', ${originalIndex})" title="Delete">🗑️</button>
-          </div>
-        </td>
-      </tr>
-    `).join('');
-  }
-
-  const totalDepAmount = cumulativeList.reduce((s, c) => s + c.cumulativeAmount, 0);
-  document.getElementById('depositsTotalValue').textContent = fmt(totalDepAmount);
-}
-
 // ─── Wants ────────────────────────────────────
 function renderWants() {
   const d = getFilteredData();
   const v = getComputedValues();
   const tbody = document.getElementById('wantsTableBody');
 
-  renderCategoryBudget('wantsBudget', 'Wants Budget', v.wantsBudget, v.wantsTotal, 'var(--pastel-lavender)');
+  renderCategoryBudget('wantsBudget', 'Wants Budget', v.wantsBudget, v.wantsTotal, 'var(--accent)');
 
   if (!d.wants || d.wants.length === 0) {
     tbody.innerHTML = `<tr><td colspan="5"><div class="empty-state"><div class="empty-icon">🛍️</div><p>No wants expenses added yet</p></div></td></tr>`;
@@ -1892,7 +1855,7 @@ function renderNeeds() {
   const v = getComputedValues();
   const tbody = document.getElementById('needsTableBody');
 
-  renderCategoryBudget('needsBudget', 'Needs Budget', v.needsBudget, v.needsTotal, 'var(--pastel-blue)');
+  renderCategoryBudget('needsBudget', 'Needs Budget', v.needsBudget, v.needsTotal, 'var(--blue)');
 
   if (!d.needs || d.needs.length === 0) {
     tbody.innerHTML = `<tr><td colspan="5"><div class="empty-state"><div class="empty-icon">📋</div><p>No needs expenses added yet</p></div></td></tr>`;
@@ -1968,7 +1931,7 @@ function renderCategoryBudget(elementId, title, budget, spent, color) {
       </div>
     </div>
     <div class="budget-bar-mini">
-      <div class="budget-bar-fill" style="width:${pct}%;background:${isOver ? 'var(--pastel-rose)' : color}"></div>
+      <div class="budget-bar-fill" style="width:${pct}%;background:${isOver ? 'var(--red)' : color}"></div>
     </div>
   `;
 }
@@ -1986,7 +1949,7 @@ function deleteItem(type, index) {
 }
 
 function getSectionForType(type) {
-  const map = { banks: 'banks', deposits: 'deposits', wants: 'wants', needs: 'needs', savings: 'savings' };
+  const map = { banks: 'banks', deposits: 'savings', wants: 'wants', needs: 'needs', savings: 'savings' };
   return map[type] || 'dashboard';
 }
 
@@ -2266,6 +2229,26 @@ function switchAuthMode(mode) {
 
 // ─── Event Listeners ──────────────────────────
 function setupEventListeners() {
+  // ─── Theme Toggle ───
+  const themeBtn = document.getElementById('themeToggleBtn');
+  if (themeBtn) {
+    themeBtn.addEventListener('click', () => {
+      const html = document.documentElement;
+      const isLight = html.getAttribute('data-theme') === 'light';
+      if (isLight) {
+        html.removeAttribute('data-theme');
+        themeBtn.textContent = '🌙';
+        themeBtn.title = 'Switch to Light Theme';
+        localStorage.setItem('kanakku_theme', 'dark');
+      } else {
+        html.setAttribute('data-theme', 'light');
+        themeBtn.textContent = '☀️';
+        themeBtn.title = 'Switch to Dark Theme';
+        localStorage.setItem('kanakku_theme', 'light');
+      }
+    });
+  }
+
   document.querySelectorAll('.nav-link').forEach(link => {
     link.addEventListener('click', (e) => {
       e.preventDefault();

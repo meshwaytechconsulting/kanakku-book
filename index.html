@@ -14,12 +14,7 @@
 </head>
 <body>
 
-  <!-- Background Mesh Orbs -->
-  <div class="bg-mesh" aria-hidden="true">
-    <div class="bg-orb"></div>
-    <div class="bg-orb"></div>
-    <div class="bg-orb"></div>
-  </div>
+
 
   <!-- FULLSCREEN USER AUTHENTICATION SCREEN (SIGN IN / REGISTER) -->
   <div class="auth-landing-screen" id="authLandingScreen">
@@ -130,6 +125,7 @@
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-header">
         <div class="logo"><span>💳</span> கணக்கு Book</div>
+        <button class="theme-toggle" id="themeToggleBtn" title="Toggle Light/Dark Theme">🌙</button>
       </div>
 
       <!-- Active Authenticated User Profile Badge (Displays First Name Only) -->
@@ -160,20 +156,17 @@
         <a href="#" class="nav-link" data-section="banks">
           <span class="nav-icon">🏦</span> Bank Accounts
         </a>
-        <a href="#" class="nav-link" data-section="deposits">
-          <span class="nav-icon">📈</span> Deposits
+        <a href="#" class="nav-link" data-section="daily">
+          <span class="nav-icon">📅</span> Daily Expense
+        </a>
+        <a href="#" class="nav-link" data-section="savings">
+          <span class="nav-icon">📈</span> Investment & Deposits
         </a>
         <a href="#" class="nav-link" data-section="wants">
           <span class="nav-icon">🛍️</span> Wants
         </a>
         <a href="#" class="nav-link" data-section="needs">
           <span class="nav-icon">📋</span> Needs
-        </a>
-        <a href="#" class="nav-link" data-section="daily">
-          <span class="nav-icon">📅</span> Daily Expenses
-        </a>
-        <a href="#" class="nav-link" data-section="savings">
-          <span class="nav-icon">🏆</span> Savings
         </a>
       </nav>
 
@@ -377,40 +370,7 @@
         </div>
       </section>
 
-      <!-- ======================== DEPOSITS ======================== -->
-      <section id="deposits-section" class="content-section">
-        <div class="section-header">
-          <h1>Deposits Dashboard</h1>
-          <p>Overview of Fixed Deposits (FD) & Recurring Deposits (RD) grouped cumulatively by Account Number</p>
-        </div>
 
-        <!-- Cumulative Deposits Grid (Grouped by Account Number & Deposit Type) -->
-        <div class="card-title">Cumulative Deposits Overview (by Account & Type)</div>
-        <div class="deposits-cards-grid" id="cumulativeDepositsGrid"></div>
-
-        <!-- Deposit Log Table -->
-        <div class="card-title">Deposit History Log</div>
-        <div class="table-container">
-          <table class="data-table" id="depositsTable">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Date</th>
-                <th>Type</th>
-                <th>Account Number</th>
-                <th>Particulars</th>
-                <th>Amount</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody id="depositsTableBody"></tbody>
-          </table>
-          <div class="table-footer">
-            <span class="total-label">Total Deposits Amount</span>
-            <span class="total-value text-warning" id="depositsTotalValue">₹ 0.00</span>
-          </div>
-        </div>
-      </section>
 
       <!-- ======================== WANTS ======================== -->
       <section id="wants-section" class="content-section">
@@ -534,17 +494,17 @@
         </div>
       </section>
 
-      <!-- ======================== SAVINGS ======================== -->
+      <!-- ======================== INVESTMENT & DEPOSITS ======================== -->
       <section id="savings-section" class="content-section">
         <div class="section-header">
-          <h1>Savings & Deposits</h1>
-          <p>Manage savings instruments & record daily/monthly contributions</p>
+          <h1>Investment & Deposits</h1>
+          <p>Manage investment instruments & track all contributions</p>
         </div>
 
         <div class="category-budget" id="savingsBudget"></div>
 
-        <!-- Step 1: Create Savings Instrument / Deposit Account -->
-        <div class="card-title">+ Add New Savings Instrument / Deposit Account</div>
+        <!-- Step 1: Create Investment Instrument / Deposit Account -->
+        <div class="card-title">+ Add New Investment Instrument</div>
         <div class="inline-form" id="createSavingsInstrumentForm">
           <div class="form-group" style="min-width: 200px;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
@@ -568,12 +528,16 @@
           <button class="btn btn-primary" id="createSavingsInstrumentBtn">+ Create Instrument</button>
         </div>
 
-        <!-- Active Registered Savings Cards Grid -->
-        <div class="card-title">Registered Savings & Deposits (Cumulative Totals)</div>
+        <!-- Active Registered Investment & Deposit Cards Grid -->
+        <div class="card-title">Registered Instruments (Cumulative Totals)</div>
         <div class="deposits-cards-grid" id="savingsCardsGrid"></div>
 
+        <!-- Cumulative FD/RD Deposits Overview (merged from Deposits page) -->
+        <div class="card-title">Cumulative FD/RD Overview</div>
+        <div class="deposits-cards-grid" id="cumulativeDepositsGrid"></div>
+
         <!-- Step 2: Record Contribution / Entry for Existing Instrument -->
-        <div class="card-title">+ Record Savings / Deposit Entry</div>
+        <div class="card-title">+ Record Contribution Entry</div>
         <div class="inline-form" id="recordSavingsEntryForm">
           <div class="form-group" style="min-width: 220px;">
             <label for="selectSavingsInstrumentId">Select Savings Instrument</label>
@@ -590,8 +554,8 @@
           <button class="btn btn-primary" id="recordSavingsEntryBtn">+ Record Entry</button>
         </div>
 
-        <!-- Step 3: Full Savings History Table -->
-        <div class="card-title">Savings & Deposits Entry Log History</div>
+        <!-- Step 3: Full Investment & Deposits Log History -->
+        <div class="card-title">Investment & Deposits Log History</div>
         <div class="table-container">
           <table class="data-table" id="savingsTable">
             <thead>
@@ -608,13 +572,13 @@
             <tbody id="savingsTableBody"></tbody>
           </table>
           <div class="table-footer">
-            <span class="total-label">Total Savings Amount (incl. Deposits)</span>
+            <span class="total-label">Total Investment & Deposits Amount</span>
             <span class="total-value text-warning" id="savingsTotalValue">₹ 0.00</span>
           </div>
         </div>
 
         <div class="summary-row mt-4" id="savingsBalanceRow">
-          <span class="summary-label">Remaining Savings Budget</span>
+          <span class="summary-label">Remaining Investment Budget</span>
           <span class="summary-value" id="savingsBalanceValue">₹ 0.00</span>
         </div>
       </section>
