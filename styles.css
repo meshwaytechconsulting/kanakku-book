@@ -437,6 +437,24 @@ select:focus, input:focus {
 }
 .sidebar-overlay.active { opacity: 1; visibility: visible; }
 
+/* ─── Global Sync UI ───────────────────────── */
+.global-sync-wrapper {
+  position: fixed;
+  top: 32px;
+  right: 40px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  z-index: 95;
+}
+@media (max-width: 768px) {
+  .global-sync-wrapper {
+    top: 14px;
+    right: 64px;
+  }
+  .hide-mobile { display: none; }
+}
+
 /* ─── Top Control Bar ──────────────────────── */
 .top-control-bar {
   display: flex; align-items: center; justify-content: space-between; gap: 14px;
@@ -948,9 +966,6 @@ select:focus, input:focus {
   .top-control-bar {
     flex-direction: column; align-items: stretch; gap: 12px;
     padding: 16px; border-radius: var(--r-lg);
-  }
-  .top-control-bar > div:last-child {
-    justify-content: space-between; width: 100%;
   }
   .filter-mode-toggle { width: 100%; justify-content: center; }
   .filter-mode-btn { flex: 1; text-align: center; }
