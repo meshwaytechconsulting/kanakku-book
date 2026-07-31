@@ -2229,6 +2229,24 @@ function switchAuthMode(mode) {
 
 // ─── Event Listeners ──────────────────────────
 function setupEventListeners() {
+  // ─── Mobile Menu Toggle ───
+  const hamburgerBtn = document.getElementById('hamburgerBtn');
+  const sidebarOverlay = document.getElementById('sidebarOverlay');
+  const sidebar = document.getElementById('sidebar');
+
+  const closeSidebar = () => {
+    sidebar.classList.remove('open');
+    sidebarOverlay.classList.remove('active');
+  };
+
+  const toggleSidebar = () => {
+    sidebar.classList.toggle('open');
+    sidebarOverlay.classList.toggle('active');
+  };
+
+  if (hamburgerBtn) hamburgerBtn.addEventListener('click', toggleSidebar);
+  if (sidebarOverlay) sidebarOverlay.addEventListener('click', closeSidebar);
+
   // ─── Theme Toggle ───
   const themeBtn = document.getElementById('themeToggleBtn');
   if (themeBtn) {
@@ -2253,6 +2271,7 @@ function setupEventListeners() {
     link.addEventListener('click', (e) => {
       e.preventDefault();
       navigateTo(link.dataset.section);
+      if (typeof closeSidebar !== 'undefined') closeSidebar(); // Auto-close on mobile
     });
   });
 
