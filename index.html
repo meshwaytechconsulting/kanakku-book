@@ -253,7 +253,7 @@
         <div class="income-grid">
           <div class="income-input-card">
             <h3>💵 Total Monthly Income</h3>
-            <input type="number" class="income-big-input" id="incomeInput" placeholder="0.00" min="0" step="0.01">
+            <input type="text" class="income-big-input" id="incomeInput" placeholder="0.00" readonly title="Auto-calculated from income entries below">
             <div class="split-config">
               <div class="split-item needs">
                 <div class="split-label">Needs Target</div>
@@ -302,6 +302,38 @@
               <span class="summary-value" id="availTotalBal">₹ 0.00</span>
             </div>
           </div>
+        </div>
+
+        <div class="inline-form" id="incomeForm" style="margin-top: 24px;">
+          <div class="form-group" style="max-width: 150px;">
+            <label for="incomeDateInput">Date</label>
+            <input type="date" id="incomeDateInput">
+          </div>
+          <div class="form-group">
+            <label for="incomeSourceInput">Income Source</label>
+            <input type="text" id="incomeSourceInput" placeholder="e.g. Salary, Freelance">
+          </div>
+          <div class="form-group">
+            <label for="incomeAmountInput">Amount (₹)</label>
+            <input type="number" id="incomeAmountInput" placeholder="0.00" min="0" step="0.01">
+          </div>
+          <button class="btn btn-primary" id="addIncomeBtn">+ Add Income</button>
+        </div>
+
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Source</th>
+                <th>Amount (₹)</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="incomeListBody">
+              <!-- Income entries dynamically injected -->
+            </tbody>
+          </table>
         </div>
       </section>
 

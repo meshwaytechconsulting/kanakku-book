@@ -41,7 +41,7 @@ function getCurrentMonthName() {
 
 function createDefaultMonthData() {
   return {
-    income: { total: 0, needsPct: 50, savingsPct: 20, wantsPct: 10 },
+    income: { total: 0, entries: [], needsPct: 50, savingsPct: 20, wantsPct: 10 },
     initialBankBalance: 0,
     banks: [],
     deposits: [],
@@ -461,7 +461,7 @@ function deleteCurrentAccount() {
 
 function setDefaultDates() {
   const today = getTodayDate();
-  const dateInputs = ['bankEntryDateInput', 'savingsEntryDateInput', 'wantsDateInput', 'needsDateInput', 'startDateInput', 'endDateInput'];
+  const dateInputs = ['incomeDateInput', 'bankEntryDateInput', 'savingsEntryDateInput', 'wantsDateInput', 'needsDateInput', 'startDateInput', 'endDateInput'];
   dateInputs.forEach(id => {
     const el = document.getElementById(id);
     if (el && !el.value) el.value = today;
@@ -1217,18 +1217,37 @@ function renderDailyChart(dailyBreakdown) {
 // ─── Income ───────────────────────────────────
 function renderIncome() {
   const d = getCurrentData();
-
-  document.getElementById('incomeInput').value = d.income.total || '';
+  
+  if (!d.income.entries) d.income.entries = [];
+  d.income.total = d.income.entries.reduce((sum, entry) => sum + Number(entry.amount), 0);
+  
+  document.getElementById('incomeInput').value = fmt(d.income.total);
   document.getElementById('needsPct').value = d.income.needsPct || 50;
   document.getElementById('savingsPct').value = d.income.savingsPct || 20;
   document.getElementById('wantsPct').value = d.income.wantsPct || 10;
   document.getElementById('initialBalanceInput').value = d.initialBankBalance || '';
 
+  const tbody = document.getElementById('incomeListBody');
+  tbody.innerHTML = '';
+  d.income.entries.forEach(entry => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${entry.date}</td>
+      <td>${entry.source}</td>
+      <td class="font-bold text-green">${fmt(entry.amount)}</td>
+      <td>
+        <button class="btn btn-secondary" onclick="deleteIncomeEntry('${entry.id}')" style="padding:4px 8px;font-size:0.7rem;">Delete</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+
   updateIncomeSplits();
 }
 
 function updateIncomeSplits() {
-  const income = Number(document.getElementById('incomeInput').value) || 0;
+  const d = getCurrentData();
+  const income = d.income.total || 0;
   const needsPct = Number(document.getElementById('needsPct').value) || 0;
   const savingsPct = Number(document.getElementById('savingsPct').value) || 0;
   const wantsPct = Number(document.getElementById('wantsPct').value) || 0;
@@ -1247,7 +1266,6 @@ function updateIncomeSplits() {
 
 function saveIncome() {
   const d = getCurrentData();
-  d.income.total = Number(document.getElementById('incomeInput').value) || 0;
   d.income.needsPct = Number(document.getElementById('needsPct').value) || 0;
   d.income.savingsPct = Number(document.getElementById('savingsPct').value) || 0;
   d.income.wantsPct = Number(document.getElementById('wantsPct').value) || 0;
@@ -1255,6 +1273,47 @@ function saveIncome() {
   saveToStorage();
   updateIncomeSplits();
 }
+
+function addIncomeEntry() {
+  const d = getCurrentData();
+  if (!d.income.entries) d.income.entries = [];
+  
+  const date = document.getElementById('incomeDateInput').value;
+  const source = document.getElementById('incomeSourceInput').value.trim();
+  const amount = Number(document.getElementById('incomeAmountInput').value) || 0;
+
+  if (!date || !source || amount <= 0) {
+    showToast('Enter valid Date, Source, and Amount.', 'error');
+    return;
+  }
+
+  d.income.entries.push({
+    id: 'inc_' + Date.now(),
+    date,
+    source,
+    amount
+  });
+  
+  d.income.entries.sort((a, b) => new Date(b.date) - new Date(a.date));
+  
+  document.getElementById('incomeSourceInput').value = '';
+  document.getElementById('incomeAmountInput').value = '';
+  
+  saveToStorage();
+  renderIncome();
+  renderDashboard();
+  showToast('Income added successfully', 'success');
+}
+
+window.deleteIncomeEntry = function(id) {
+  const d = getCurrentData();
+  if (!d.income.entries) return;
+  d.income.entries = d.income.entries.filter(e => e.id !== id);
+  saveToStorage();
+  renderIncome();
+  renderDashboard();
+  showToast('Income entry deleted', 'info');
+};
 
 // ─── Bank Accounts Management ─────────────────
 function createBankAccount() {
@@ -2420,13 +2479,17 @@ function setupEventListeners() {
     showToast('Custom date filter applied', 'info');
   });
 
-  ['incomeInput', 'needsPct', 'savingsPct', 'wantsPct', 'initialBalanceInput'].forEach(id => {
+  ['needsPct', 'savingsPct', 'wantsPct', 'initialBalanceInput'].forEach(id => {
     const el = document.getElementById(id);
     if (el) {
       el.addEventListener('input', updateIncomeSplits);
       el.addEventListener('change', saveIncome);
     }
   });
+
+  // Income Forms
+  const addIncomeBtn = document.getElementById('addIncomeBtn');
+  if (addIncomeBtn) addIncomeBtn.addEventListener('click', addIncomeEntry);
 
   // Bank Forms
   document.getElementById('createAccountBtn').addEventListener('click', createBankAccount);
