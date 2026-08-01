@@ -49,6 +49,7 @@ function createDefaultMonthData() {
     needs: [],
     savings: [],
     dailyExpenses: {},
+    loansAndCardsData: {},
   };
 }
 
@@ -283,6 +284,7 @@ let state = {
   customEndDate: getTodayDate(),
   registeredAccounts: [],
   registeredSavingsInstruments: [],
+  registeredLoansAndCards: [],
   customSavingsTypes: [...DEFAULT_SAVINGS_TYPES],
   data: {},
 };
@@ -622,10 +624,57 @@ function fmt(value) {
   return `${CURRENCY} ${Number(value).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+function getPreviousMonthName(monthStr) {
+  if (!monthStr) return null;
+  const parts = monthStr.split(' ');
+  if (parts.length !== 2) return null;
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  let idx = months.indexOf(parts[0]);
+  let year = parseInt(parts[1]);
+  if (idx === -1 || isNaN(year)) return null;
+  if (idx === 0) {
+    idx = 11;
+    year -= 1;
+  } else {
+    idx -= 1;
+  }
+  return `${months[idx]} ${year}`;
+}
+
+function initializeMonthData(monthName) {
+  const monthData = createDefaultMonthData();
+  const prevMonthName = getPreviousMonthName(monthName);
+  if (prevMonthName && state.data[prevMonthName]) {
+    const prevData = state.data[prevMonthName];
+    if (prevData.banks && Array.isArray(prevData.banks)) {
+      const latestBalances = getAccountLatestBalances(prevData.banks);
+      latestBalances.forEach(b => {
+        if (b.latestBalance > 0) {
+          monthData.banks.push({
+            id: 'bank_cf_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+            accountId: b.accountId,
+            bankName: b.bankName,
+            accountNumber: b.accountNumber,
+            date: getTodayDate(),
+            balance: b.latestBalance,
+            note: 'Carried forward from ' + prevMonthName
+          });
+        }
+      });
+      const totalCF = monthData.banks.reduce((sum, item) => sum + item.balance, 0);
+      monthData.initialBankBalance = totalCF;
+    }
+    if (prevData.loansAndCardsData) {
+      monthData.loansAndCardsData = JSON.parse(JSON.stringify(prevData.loansAndCardsData));
+    }
+  }
+  return monthData;
+}
+
 function getCurrentData() {
   if (!state.currentMonth || !state.data[state.currentMonth]) {
     const monthName = state.currentMonth || getCurrentMonthName();
-    state.data[monthName] = createDefaultMonthData();
+    state.data[monthName] = initializeMonthData(monthName);
     state.currentMonth = monthName;
   }
   return state.data[state.currentMonth];
@@ -795,12 +844,33 @@ function getComputedValues() {
 
   const bankAccountBalances = getAccountLatestBalances(d.banks);
   const banksTotal = bankAccountBalances.reduce((s, b) => s + b.latestBalance, 0);
-
   const depositsTotal = (d.deposits || []).reduce((s, dp) => s + (Number(dp.amount) || 0), 0);
+
+  // Loans & Credit Cards
+  const debtInstruments = state.registeredLoansAndCards || [];
+  const loansAndCardsData = rawData.loansAndCardsData || {};
+  let totalCreditLimit = 0;
+  let totalCardDebt = 0;
+  let totalLoanDebt = 0;
+  let totalMonthlyEmi = 0;
+
+  debtInstruments.forEach(inst => {
+    const dData = loansAndCardsData[inst.id] || { outstanding: inst.initialOutstanding || 0 };
+    const currentOutstanding = Number(dData.outstanding) || 0;
+    if (inst.type === 'credit_card') {
+      totalCreditLimit += (Number(inst.limit) || 0);
+      totalCardDebt += currentOutstanding;
+    } else if (inst.type === 'loan') {
+      totalLoanDebt += currentOutstanding;
+      totalMonthlyEmi += (Number(inst.emiAmount) || 0);
+    }
+  });
 
   const overallTotalExpenses = needsTotal + wantsTotal + savingsTotal;
   const netRemainingIncome = income - overallTotalExpenses;
 
+  const availCreditLimit = Math.max(0, totalCreditLimit - totalCardDebt);
+  const netWorth = (banksTotal + depositsTotal) - (totalCardDebt + totalLoanDebt);
   const availBankBal = banksTotal;
   const availTotalBal = banksTotal + depositsTotal;
 
@@ -822,6 +892,12 @@ function getComputedValues() {
     bankAccountBalances,
     availBankBal,
     availTotalBal,
+    totalCreditLimit,
+    availCreditLimit,
+    totalCardDebt,
+    totalLoanDebt,
+    totalMonthlyEmi,
+    netWorth,
     needsBalance: needsBudget - needsTotal,
     wantsBalance: wantsBudget - wantsTotal,
     savingsBalance: savingsBudget - savingsTotal,
@@ -868,6 +944,7 @@ function renderSection(section) {
     case 'needs': renderNeeds(); break;
     case 'daily': renderDaily(); break;
     case 'savings': renderSavings(); break;
+    case 'loans': renderLoansAndCards(); break;
   }
 }
 
@@ -929,6 +1006,7 @@ function renderAll() {
   renderUserBadge();
   populateMonthSelect();
   populateSavingsTypeSelect();
+  renderPaymentSourceOptions();
 
   const subtext = document.getElementById('dashboardSubtext');
   if (subtext) {
@@ -1865,6 +1943,303 @@ function renderSavings() {
   document.getElementById('savingsBalanceValue').textContent = fmt(bal);
 }
 
+// ─── Payment Source Helpers ───────────────────
+function getPaymentSourceBadge(paymentSource) {
+  if (!paymentSource || paymentSource === 'cash') {
+    return `<span class="badge-source badge-cash">💵 Cash</span>`;
+  }
+  if (paymentSource.startsWith('bank_')) {
+    const accId = paymentSource.replace('bank_', '');
+    const acc = (state.registeredAccounts || []).find(a => a.id === accId);
+    const label = acc ? `${acc.bankName} (•••• ${acc.accountNumber.slice(-4)})` : 'Bank';
+    return `<span class="badge-source badge-bank">🏦 ${escapeHtml(label)}</span>`;
+  }
+  if (paymentSource.startsWith('debt_')) {
+    const debtId = paymentSource.replace('debt_', '');
+    const debt = (state.registeredLoansAndCards || []).find(d => d.id === debtId);
+    const label = debt ? debt.name : 'Credit';
+    return `<span class="badge-source badge-credit">💳 ${escapeHtml(label)}</span>`;
+  }
+  return `<span class="badge-source badge-cash">💵 Cash</span>`;
+}
+
+function processPaymentSourceEffect(paymentSource, amount, description, date) {
+  if (!paymentSource || paymentSource === 'cash') return;
+  const d = getCurrentData();
+
+  if (paymentSource.startsWith('bank_')) {
+    const accountId = paymentSource.replace('bank_', '');
+    const acc = (state.registeredAccounts || []).find(a => a.id === accountId);
+    if (acc) {
+      const accEntries = (d.banks || []).filter(b => b.accountId === accountId);
+      let currentBal = 0;
+      if (accEntries.length > 0) {
+        accEntries.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+        currentBal = Number(accEntries[0].balance) || 0;
+      }
+      d.banks.push({
+        id: 'bank_auto_' + Date.now(),
+        accountId,
+        bankName: acc.bankName,
+        accountNumber: acc.accountNumber,
+        date: date || getTodayDate(),
+        balance: Math.max(0, currentBal - amount),
+        note: `Paid: ${description}`
+      });
+    }
+  } else if (paymentSource.startsWith('debt_')) {
+    const debtId = paymentSource.replace('debt_', '');
+    if (!d.loansAndCardsData) d.loansAndCardsData = {};
+    if (!d.loansAndCardsData[debtId]) {
+      const inst = (state.registeredLoansAndCards || []).find(i => i.id === debtId);
+      d.loansAndCardsData[debtId] = { outstanding: inst ? (Number(inst.initialOutstanding) || 0) : 0 };
+    }
+    d.loansAndCardsData[debtId].outstanding = (Number(d.loansAndCardsData[debtId].outstanding) || 0) + amount;
+  }
+}
+
+function renderPaymentSourceOptions() {
+  const selects = document.querySelectorAll('.payment-source-select');
+  selects.forEach(select => {
+    const currentVal = select.value;
+    let html = `<option value="cash">💵 Cash</option>`;
+
+    if (state.registeredAccounts && state.registeredAccounts.length > 0) {
+      html += `<optgroup label="🏦 Bank Accounts">`;
+      state.registeredAccounts.forEach(acc => {
+        html += `<option value="bank_${acc.id}">🏦 ${escapeHtml(acc.bankName)} (•••• ${acc.accountNumber.slice(-4)})</option>`;
+      });
+      html += `</optgroup>`;
+    }
+
+    if (state.registeredLoansAndCards && state.registeredLoansAndCards.length > 0) {
+      html += `<optgroup label="💳 Loans & Credit Cards">`;
+      state.registeredLoansAndCards.forEach(debt => {
+        const icon = debt.type === 'credit_card' ? '💳' : '🏦';
+        html += `<option value="debt_${debt.id}">${icon} ${escapeHtml(debt.name)}</option>`;
+      });
+      html += `</optgroup>`;
+    }
+
+    select.innerHTML = html;
+    if (currentVal) select.value = currentVal;
+  });
+}
+
+// ─── Loans & Credit Cards Management ──────────
+function createDebtInstrument() {
+  const type = document.getElementById('debtTypeInput').value;
+  const name = document.getElementById('debtNameInput').value.trim();
+  const lender = document.getElementById('debtLenderInput').value.trim();
+  const limitOrPrincipal = Number(document.getElementById('debtLimitOrPrincipalInput').value) || 0;
+  const initialOutstanding = Number(document.getElementById('debtInitialOutstandingInput').value) || 0;
+  const emiAmount = Number(document.getElementById('debtEmiInput').value) || 0;
+
+  if (!name) { showToast('Enter name/description', 'error'); return; }
+  if (!lender) { showToast('Enter Bank/Lender name', 'error'); return; }
+
+  const newDebt = {
+    id: 'debt_' + Date.now(),
+    type,
+    name,
+    lender,
+    limit: type === 'credit_card' ? limitOrPrincipal : 0,
+    principal: type === 'loan' ? limitOrPrincipal : 0,
+    initialOutstanding,
+    emiAmount: type === 'loan' ? emiAmount : 0,
+    createdAt: new Date().toISOString()
+  };
+
+  if (!state.registeredLoansAndCards) state.registeredLoansAndCards = [];
+  state.registeredLoansAndCards.push(newDebt);
+
+  const d = getCurrentData();
+  if (!d.loansAndCardsData) d.loansAndCardsData = {};
+  d.loansAndCardsData[newDebt.id] = { outstanding: initialOutstanding, payments: [] };
+
+  saveToStorage();
+  renderAll();
+
+  document.getElementById('debtNameInput').value = '';
+  document.getElementById('debtLenderInput').value = '';
+  document.getElementById('debtLimitOrPrincipalInput').value = '';
+  document.getElementById('debtInitialOutstandingInput').value = '';
+  document.getElementById('debtEmiInput').value = '';
+
+  showToast(`${type === 'credit_card' ? 'Credit Card' : 'Loan'} added successfully`, 'success');
+}
+
+function renderLoansAndCards() {
+  const d = getCurrentData();
+  const v = getComputedValues();
+
+  document.getElementById('totalCreditLimitVal').textContent = fmt(v.totalCreditLimit);
+  document.getElementById('availCreditLimitSub').textContent = `Avail: ${fmt(v.availCreditLimit)}`;
+  document.getElementById('totalCardDebtVal').textContent = fmt(v.totalCardDebt);
+  document.getElementById('totalLoanDebtVal').textContent = fmt(v.totalLoanDebt);
+  document.getElementById('totalMonthlyEmiVal').textContent = fmt(v.totalMonthlyEmi);
+
+  const cardsContainer = document.getElementById('creditCardsGrid');
+  const loansContainer = document.getElementById('loansGrid');
+  const debtInstruments = state.registeredLoansAndCards || [];
+
+  const cards = debtInstruments.filter(i => i.type === 'credit_card');
+  const loans = debtInstruments.filter(i => i.type === 'loan');
+
+  if (cards.length === 0) {
+    cardsContainer.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><div class="empty-icon">💳</div><p>No credit cards registered yet</p></div>`;
+  } else {
+    cardsContainer.innerHTML = cards.map(c => {
+      const dData = (d.loansAndCardsData || {})[c.id] || { outstanding: c.initialOutstanding || 0 };
+      const outstanding = Number(dData.outstanding) || 0;
+      const limit = Number(c.limit) || 1;
+      const avail = Math.max(0, limit - outstanding);
+      const usedPct = Math.min(100, Math.round((outstanding / limit) * 100));
+
+      return `
+        <div class="bank-account-card">
+          <div class="bank-card-header">
+            <div>
+              <div class="bank-card-name">💳 ${escapeHtml(c.name)}</div>
+              <div class="bank-card-num">${escapeHtml(c.lender)}</div>
+            </div>
+            <button class="btn-icon delete" onclick="deleteDebtInstrument('${c.id}')" title="Delete Card">🗑️</button>
+          </div>
+          <div class="bank-card-balance text-red">${fmt(outstanding)}</div>
+          <div class="bank-card-meta">
+            <span>Outstanding Debt</span>
+            <span>Limit: ${fmt(limit)}</span>
+          </div>
+          <div style="margin: 10px 0 6px; background: rgba(255,255,255,0.08); height: 6px; border-radius: 3px; overflow: hidden;">
+            <div style="width: ${usedPct}%; height: 100%; background: ${usedPct > 80 ? 'var(--red)' : 'var(--accent)'}; border-radius: 3px;"></div>
+          </div>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top: 12px;">
+            <span style="font-size:0.75rem; color:var(--text-muted);">Avail: ${fmt(avail)}</span>
+            <button class="btn btn-secondary" onclick="openDebtRepayModal('${c.id}', 'credit_card')" style="padding:4px 10px; font-size:0.75rem;">💳 Pay Bill</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  if (loans.length === 0) {
+    loansContainer.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><div class="empty-icon">🏦</div><p>No active loans registered yet</p></div>`;
+  } else {
+    loansContainer.innerHTML = loans.map(l => {
+      const dData = (d.loansAndCardsData || {})[l.id] || { outstanding: l.initialOutstanding || l.principal || 0 };
+      const outstanding = Number(dData.outstanding) || 0;
+      const original = Number(l.principal) || 1;
+      const paid = Math.max(0, original - outstanding);
+      const paidPct = Math.min(100, Math.round((paid / original) * 100));
+
+      return `
+        <div class="bank-account-card">
+          <div class="bank-card-header">
+            <div>
+              <div class="bank-card-name">🏦 ${escapeHtml(l.name)}</div>
+              <div class="bank-card-num">${escapeHtml(l.lender)}</div>
+            </div>
+            <button class="btn-icon delete" onclick="deleteDebtInstrument('${l.id}')" title="Delete Loan">🗑️</button>
+          </div>
+          <div class="bank-card-balance text-red">${fmt(outstanding)}</div>
+          <div class="bank-card-meta">
+            <span>Remaining Principal</span>
+            <span>EMI: ${fmt(l.emiAmount)}</span>
+          </div>
+          <div style="margin: 10px 0 6px; background: rgba(255,255,255,0.08); height: 6px; border-radius: 3px; overflow: hidden;">
+            <div style="width: ${paidPct}%; height: 100%; background: var(--green); border-radius: 3px;"></div>
+          </div>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top: 12px;">
+            <span style="font-size:0.75rem; color:var(--text-muted);">${paidPct}% Paid Off</span>
+            <button class="btn btn-secondary" onclick="openDebtRepayModal('${l.id}', 'loan')" style="padding:4px 10px; font-size:0.75rem;">⚡ Record EMI</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+}
+
+window.openDebtRepayModal = function(id, actionType) {
+  const inst = (state.registeredLoansAndCards || []).find(i => i.id === id);
+  if (!inst) return;
+
+  const d = getCurrentData();
+  const dData = (d.loansAndCardsData || {})[id] || { outstanding: inst.initialOutstanding || 0 };
+  const currentOut = Number(dData.outstanding) || 0;
+
+  document.getElementById('debtRepayInstrumentId').value = id;
+  document.getElementById('debtRepayActionType').value = actionType;
+  document.getElementById('debtRepayModalTitle').textContent = actionType === 'credit_card' ? `Pay ${inst.name} Bill` : `Record ${inst.name} EMI`;
+  document.getElementById('debtRepayAmountInput').value = actionType === 'loan' ? (inst.emiAmount || '') : (currentOut || '');
+  document.getElementById('debtRepayDateInput').value = getTodayDate();
+
+  renderPaymentSourceOptions();
+  document.getElementById('debtRepayModal').classList.add('active');
+};
+
+function processDebtRepaySubmit() {
+  const id = document.getElementById('debtRepayInstrumentId').value;
+  const actionType = document.getElementById('debtRepayActionType').value;
+  const amount = Number(document.getElementById('debtRepayAmountInput').value) || 0;
+  const source = document.getElementById('debtRepaySourceSelect').value;
+  const date = document.getElementById('debtRepayDateInput').value || getTodayDate();
+
+  if (amount <= 0) { showToast('Enter valid payment amount', 'error'); return; }
+
+  const inst = (state.registeredLoansAndCards || []).find(i => i.id === id);
+  if (!inst) return;
+
+  const d = getCurrentData();
+  if (!d.loansAndCardsData) d.loansAndCardsData = {};
+  if (!d.loansAndCardsData[id]) d.loansAndCardsData[id] = { outstanding: inst.initialOutstanding || 0 };
+
+  d.loansAndCardsData[id].outstanding = Math.max(0, (Number(d.loansAndCardsData[id].outstanding) || 0) - amount);
+
+  if (source.startsWith('bank_')) {
+    const bankAccId = source.replace('bank_', '');
+    const acc = (state.registeredAccounts || []).find(a => a.id === bankAccId);
+    if (acc) {
+      const accEntries = (d.banks || []).filter(b => b.accountId === bankAccId);
+      let curBal = 0;
+      if (accEntries.length > 0) {
+        accEntries.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+        curBal = Number(accEntries[0].balance) || 0;
+      }
+      d.banks.push({
+        id: 'bank_pay_' + Date.now(),
+        accountId: bankAccId,
+        bankName: acc.bankName,
+        accountNumber: acc.accountNumber,
+        date,
+        balance: Math.max(0, curBal - amount),
+        note: `Payment: ${inst.name}`
+      });
+    }
+  }
+
+  if (actionType === 'loan') {
+    d.needs.push({
+      date,
+      createdAt: new Date().toISOString(),
+      name: `EMI: ${inst.name}`,
+      paymentSource: source,
+      amount
+    });
+  }
+
+  saveToStorage();
+  renderAll();
+  document.getElementById('debtRepayModal').classList.remove('active');
+  showToast(`${actionType === 'credit_card' ? 'Credit Card Bill' : 'EMI'} Payment Recorded!`, 'success');
+}
+
+window.deleteDebtInstrument = function(id) {
+  state.registeredLoansAndCards = (state.registeredLoansAndCards || []).filter(i => i.id !== id);
+  saveToStorage();
+  renderAll();
+  showToast('Instrument deleted', 'info');
+}
+
 // ─── Wants ────────────────────────────────────
 function renderWants() {
   const d = getFilteredData();
@@ -1874,7 +2249,7 @@ function renderWants() {
   renderCategoryBudget('wantsBudget', 'Wants Budget', v.wantsBudget, v.wantsTotal, 'var(--accent)');
 
   if (!d.wants || d.wants.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="5"><div class="empty-state"><div class="empty-icon">🛍️</div><p>No wants expenses added yet</p></div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">🛍️</div><p>No wants expenses added yet</p></div></td></tr>`;
   } else {
     const sortedWants = d.wants
       .map((item, originalIndex) => ({ item, originalIndex }))
@@ -1885,6 +2260,7 @@ function renderWants() {
         <td class="text-muted">${displayIdx + 1}</td>
         <td class="text-muted">${w.date || getTodayDate()}</td>
         <td>${escapeHtml(w.name)}</td>
+        <td>${getPaymentSourceBadge(w.paymentSource)}</td>
         <td class="amount">${fmt(w.amount)}</td>
         <td>
           <div class="actions">
@@ -1908,13 +2284,17 @@ function addWants() {
   const date = document.getElementById('wantsDateInput').value || getTodayDate();
   const name = document.getElementById('wantsNameInput').value.trim();
   const amount = Number(document.getElementById('wantsAmountInput').value);
+  const paymentSource = document.getElementById('wantsPaymentSourceSelect')?.value || 'cash';
+
   if (!name) { showToast('Enter expense name', 'error'); return; }
   if (isNaN(amount) || amount <= 0) { showToast('Enter valid amount', 'error'); return; }
 
   const d = getCurrentData();
-  d.wants.push({ date, createdAt: new Date().toISOString(), name, amount });
+  d.wants.push({ date, createdAt: new Date().toISOString(), name, amount, paymentSource });
+  processPaymentSourceEffect(paymentSource, amount, name, date);
+
   saveToStorage();
-  renderWants();
+  renderAll();
 
   document.getElementById('wantsNameInput').value = '';
   document.getElementById('wantsAmountInput').value = '';
@@ -1930,7 +2310,7 @@ function renderNeeds() {
   renderCategoryBudget('needsBudget', 'Needs Budget', v.needsBudget, v.needsTotal, 'var(--blue)');
 
   if (!d.needs || d.needs.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="5"><div class="empty-state"><div class="empty-icon">📋</div><p>No needs expenses added yet</p></div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">📋</div><p>No needs expenses added yet</p></div></td></tr>`;
   } else {
     const sortedNeeds = d.needs
       .map((item, originalIndex) => ({ item, originalIndex }))
@@ -1941,6 +2321,7 @@ function renderNeeds() {
         <td class="text-muted">${displayIdx + 1}</td>
         <td class="text-muted">${n.date || getTodayDate()}</td>
         <td>${escapeHtml(n.name)}</td>
+        <td>${getPaymentSourceBadge(n.paymentSource)}</td>
         <td class="amount">${fmt(n.amount)}</td>
         <td>
           <div class="actions">
@@ -1964,13 +2345,17 @@ function addNeeds() {
   const date = document.getElementById('needsDateInput').value || getTodayDate();
   const name = document.getElementById('needsNameInput').value.trim();
   const amount = Number(document.getElementById('needsAmountInput').value);
+  const paymentSource = document.getElementById('needsPaymentSourceSelect')?.value || 'cash';
+
   if (!name) { showToast('Enter expense name', 'error'); return; }
   if (isNaN(amount) || amount <= 0) { showToast('Enter valid amount', 'error'); return; }
 
   const d = getCurrentData();
-  d.needs.push({ date, createdAt: new Date().toISOString(), name, amount });
+  d.needs.push({ date, createdAt: new Date().toISOString(), name, amount, paymentSource });
+  processPaymentSourceEffect(paymentSource, amount, name, date);
+
   saveToStorage();
-  renderNeeds();
+  renderAll();
 
   document.getElementById('needsNameInput').value = '';
   document.getElementById('needsAmountInput').value = '';
@@ -2502,6 +2887,28 @@ function setupEventListeners() {
   // Savings Forms
   document.getElementById('createSavingsInstrumentBtn').addEventListener('click', createSavingsInstrument);
   document.getElementById('recordSavingsEntryBtn').addEventListener('click', recordSavingsEntry);
+
+  // Loans & Credit Cards Forms & Modals
+  const createDebtBtn = document.getElementById('createDebtBtn');
+  if (createDebtBtn) createDebtBtn.addEventListener('click', createDebtInstrument);
+
+  const debtRepayModalClose = document.getElementById('debtRepayModalClose');
+  if (debtRepayModalClose) debtRepayModalClose.addEventListener('click', () => document.getElementById('debtRepayModal').classList.remove('active'));
+  
+  const debtRepayModalCancel = document.getElementById('debtRepayModalCancel');
+  if (debtRepayModalCancel) debtRepayModalCancel.addEventListener('click', () => document.getElementById('debtRepayModal').classList.remove('active'));
+
+  const debtRepayModalSubmit = document.getElementById('debtRepayModalSubmit');
+  if (debtRepayModalSubmit) debtRepayModalSubmit.addEventListener('click', processDebtRepaySubmit);
+
+  const debtTypeInput = document.getElementById('debtTypeInput');
+  if (debtTypeInput) {
+    debtTypeInput.addEventListener('change', (e) => {
+      const isCard = e.target.value === 'credit_card';
+      document.getElementById('debtLimitOrPrincipalLabel').textContent = isCard ? 'Total Credit Limit (₹)' : 'Total Principal Amount (₹)';
+      document.getElementById('debtEmiGroup').style.display = isCard ? 'none' : 'flex';
+    });
+  }
 
   // Custom Savings Type Modal Events
   document.getElementById('openCustomTypeModalBtn').addEventListener('click', openCustomTypeModal);

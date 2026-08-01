@@ -171,6 +171,9 @@
         <a href="#" class="nav-link" data-section="savings">
           <span class="nav-icon">📈</span> Investment & Deposits
         </a>
+        <a href="#" class="nav-link" data-section="loans">
+          <span class="nav-icon">💳</span> Loans & Credit Cards
+        </a>
         <a href="#" class="nav-link" data-section="wants">
           <span class="nav-icon">🛍️</span> Wants
         </a>
@@ -420,13 +423,19 @@
         <div class="category-budget" id="wantsBudget"></div>
 
         <div class="inline-form" id="wantsForm">
-          <div class="form-group" style="max-width: 150px;">
+          <div class="form-group" style="max-width: 140px;">
             <label for="wantsDateInput">Date</label>
             <input type="date" id="wantsDateInput">
           </div>
           <div class="form-group">
             <label for="wantsNameInput">Expense Name</label>
             <input type="text" id="wantsNameInput" placeholder="e.g. Headphones">
+          </div>
+          <div class="form-group" style="max-width: 170px;">
+            <label for="wantsPaymentSourceSelect">Paid Via</label>
+            <select id="wantsPaymentSourceSelect" class="payment-source-select">
+              <option value="cash">💵 Cash</option>
+            </select>
           </div>
           <div class="form-group">
             <label for="wantsAmountInput">Amount (₹)</label>
@@ -442,6 +451,7 @@
                 <th>#</th>
                 <th>Date</th>
                 <th>Expense</th>
+                <th>Paid Via</th>
                 <th>Amount</th>
                 <th>Actions</th>
               </tr>
@@ -470,13 +480,19 @@
         <div class="category-budget" id="needsBudget"></div>
 
         <div class="inline-form" id="needsForm">
-          <div class="form-group" style="max-width: 150px;">
+          <div class="form-group" style="max-width: 140px;">
             <label for="needsDateInput">Date</label>
             <input type="date" id="needsDateInput">
           </div>
           <div class="form-group">
             <label for="needsNameInput">Expense Name</label>
             <input type="text" id="needsNameInput" placeholder="e.g. Electricity Bill">
+          </div>
+          <div class="form-group" style="max-width: 170px;">
+            <label for="needsPaymentSourceSelect">Paid Via</label>
+            <select id="needsPaymentSourceSelect" class="payment-source-select">
+              <option value="cash">💵 Cash</option>
+            </select>
           </div>
           <div class="form-group">
             <label for="needsAmountInput">Amount (₹)</label>
@@ -492,6 +508,7 @@
                 <th>#</th>
                 <th>Date</th>
                 <th>Expense</th>
+                <th>Paid Via</th>
                 <th>Amount</th>
                 <th>Actions</th>
               </tr>
@@ -618,6 +635,95 @@
         <div class="summary-row mt-4" id="savingsBalanceRow">
           <span class="summary-label">Remaining Investment Budget</span>
           <span class="summary-value" id="savingsBalanceValue">₹ 0.00</span>
+        </div>
+      </section>
+
+      <!-- ======================== LOANS & CREDIT CARDS ======================== -->
+      <section id="loans-section" class="content-section">
+        <div class="section-header">
+          <h1>Loans & Credit Cards</h1>
+          <p>Track credit card limits, outstanding debt, loan principal, and EMIs</p>
+        </div>
+
+        <!-- Summary Stat Cards -->
+        <div class="stat-cards mb-4">
+          <div class="stat-card">
+            <div class="stat-header">
+              <span class="stat-label">Total Credit Limit</span>
+              <span class="stat-icon">💳</span>
+            </div>
+            <div class="stat-val" id="totalCreditLimitVal">₹ 0.00</div>
+            <div class="stat-sub" id="availCreditLimitSub">Avail: ₹ 0.00</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-header">
+              <span class="stat-label">Credit Card Debt</span>
+              <span class="stat-icon">⚠️</span>
+            </div>
+            <div class="stat-val text-red" id="totalCardDebtVal">₹ 0.00</div>
+            <div class="stat-sub">Current Outstanding</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-header">
+              <span class="stat-label">Total Loan Debt</span>
+              <span class="stat-icon">🏦</span>
+            </div>
+            <div class="stat-val text-red" id="totalLoanDebtVal">₹ 0.00</div>
+            <div class="stat-sub">Remaining Principal</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-header">
+              <span class="stat-label">Monthly EMI Due</span>
+              <span class="stat-icon">⚡</span>
+            </div>
+            <div class="stat-val text-warning" id="totalMonthlyEmiVal">₹ 0.00</div>
+            <div class="stat-sub">Monthly Obligation</div>
+          </div>
+        </div>
+
+        <!-- Add New Credit Card or Loan Form -->
+        <div class="card-title">Add New Credit Card or Loan Instrument</div>
+        <div class="inline-form mb-4" id="createDebtForm">
+          <div class="form-group" style="max-width: 140px;">
+            <label for="debtTypeInput">Type</label>
+            <select id="debtTypeInput">
+              <option value="credit_card">Credit Card</option>
+              <option value="loan">Loan</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="debtNameInput">Name / Description</label>
+            <input type="text" id="debtNameInput" placeholder="e.g. HDFC Regalia / Home Loan">
+          </div>
+          <div class="form-group">
+            <label for="debtLenderInput">Bank / Lender</label>
+            <input type="text" id="debtLenderInput" placeholder="e.g. HDFC, ICICI, SBI">
+          </div>
+          <div class="form-group">
+            <label for="debtLimitOrPrincipalInput" id="debtLimitOrPrincipalLabel">Limit / Total Amount (₹)</label>
+            <input type="number" id="debtLimitOrPrincipalInput" placeholder="0.00" min="0" step="0.01">
+          </div>
+          <div class="form-group">
+            <label for="debtInitialOutstandingInput">Initial Outstanding (₹)</label>
+            <input type="number" id="debtInitialOutstandingInput" placeholder="0.00" min="0" step="0.01">
+          </div>
+          <div class="form-group" style="max-width: 130px;" id="debtEmiGroup">
+            <label for="debtEmiInput">Monthly EMI (₹)</label>
+            <input type="number" id="debtEmiInput" placeholder="0.00" min="0" step="0.01">
+          </div>
+          <button class="btn btn-primary" id="createDebtBtn">+ Add Instrument</button>
+        </div>
+
+        <!-- Active Credit Cards Section -->
+        <div class="card-title mb-2">Active Credit Cards</div>
+        <div class="bank-cards-grid mb-4" id="creditCardsGrid">
+          <!-- Dynamically populated -->
+        </div>
+
+        <!-- Active Loans Section -->
+        <div class="card-title mb-2">Active Loans</div>
+        <div class="bank-cards-grid mb-4" id="loansGrid">
+          <!-- Dynamically populated -->
         </div>
       </section>
 
@@ -766,6 +872,41 @@
       <div class="modal-footer">
         <button class="btn btn-secondary" id="addMonthModalCancel">Cancel</button>
         <button class="btn btn-primary" id="addMonthModalCreate">Create Month</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pay Credit Card Bill / Record EMI Modal -->
+  <div class="modal-overlay" id="debtRepayModal">
+    <div class="modal" style="max-width: 440px;">
+      <div class="modal-header">
+        <h2 id="debtRepayModalTitle">Pay Credit Card Bill / EMI</h2>
+        <button class="modal-close" id="debtRepayModalClose">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="debtRepayInstrumentId">
+        <input type="hidden" id="debtRepayActionType">
+        
+        <div class="form-group mb-3">
+          <label for="debtRepayAmountInput">Payment Amount (₹)</label>
+          <input type="number" id="debtRepayAmountInput" placeholder="0.00" min="0.01" step="0.01" required>
+        </div>
+
+        <div class="form-group mb-3">
+          <label for="debtRepaySourceSelect">Paid From</label>
+          <select id="debtRepaySourceSelect" class="payment-source-select">
+            <option value="cash">💵 Cash</option>
+          </select>
+        </div>
+
+        <div class="form-group mb-3">
+          <label for="debtRepayDateInput">Payment Date</label>
+          <input type="date" id="debtRepayDateInput">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="debtRepayModalCancel">Cancel</button>
+        <button class="btn btn-primary" id="debtRepayModalSubmit">Confirm Payment</button>
       </div>
     </div>
   </div>
