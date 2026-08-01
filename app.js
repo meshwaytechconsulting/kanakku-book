@@ -96,7 +96,10 @@ function getSupabase() {
 function updateCloudSyncBadge(statusText, isSuccess = true) {
   const badge = document.getElementById('cloudSyncStatusBadge');
   if (!badge) return;
-  badge.textContent = statusText;
+  const parts = statusText.split(' ');
+  const emoji = parts[0];
+  const text = parts.slice(1).join(' ');
+  badge.innerHTML = `${emoji} <span class="hide-mobile">${text}</span>`;
   badge.style.color = isSuccess ? 'var(--accent)' : 'var(--red)';
 }
 
@@ -189,7 +192,11 @@ async function fetchUserDataFromCloud(userId, isManual = false) {
   updateCloudSyncBadge('☁️ Fetching...', true);
   try {
     const sb = getSupabase();
-    if (!sb) { updateCloudSyncBadge('☁️ Saved Locally', true); return; }
+    if (!sb) { 
+      updateCloudSyncBadge('☁️ Saved Locally', true); 
+      if (isManual) showToast('Could not connect to Cloud Database.', 'error');
+      return; 
+    }
     const { data, error } = await sb
       .from('user_data')
       .select('data')
@@ -203,9 +210,11 @@ async function fetchUserDataFromCloud(userId, isManual = false) {
       if (isManual) showToast('Finances synchronized across devices!', 'success');
     } else {
       updateCloudSyncBadge('☁️ Synced to Cloud', true);
+      if (isManual) showToast('Data sync failed or no data found.', 'error');
     }
   } catch (e) {
     updateCloudSyncBadge('☁️ Synced to Cloud', true);
+    if (isManual) showToast('Error during cloud sync.', 'error');
   }
 }
 
