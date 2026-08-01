@@ -1228,19 +1228,23 @@ function renderIncome() {
   document.getElementById('initialBalanceInput').value = d.initialBankBalance || '';
 
   const tbody = document.getElementById('incomeListBody');
-  tbody.innerHTML = '';
-  d.income.entries.forEach(entry => {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${entry.date}</td>
-      <td>${entry.source}</td>
-      <td class="font-bold text-green">${fmt(entry.amount)}</td>
-      <td>
-        <button class="btn btn-secondary" onclick="deleteIncomeEntry('${entry.id}')" style="padding:4px 8px;font-size:0.7rem;">Delete</button>
-      </td>
-    `;
-    tbody.appendChild(tr);
-  });
+  if (d.income.entries.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="5"><div class="empty-state"><div class="empty-icon">💵</div><p>No income entries added yet</p></div></td></tr>`;
+  } else {
+    tbody.innerHTML = d.income.entries.map((entry, idx) => `
+      <tr>
+        <td class="text-muted">${idx + 1}</td>
+        <td class="text-muted">${entry.date}</td>
+        <td><strong>${escapeHtml(entry.source)}</strong></td>
+        <td class="amount positive">${fmt(entry.amount)}</td>
+        <td>
+          <div class="actions">
+            <button class="btn-icon delete" onclick="deleteIncomeEntry('${entry.id}')" title="Delete">🗑️</button>
+          </div>
+        </td>
+      </tr>
+    `).join('');
+  }
 
   updateIncomeSplits();
 }

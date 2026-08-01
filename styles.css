@@ -715,15 +715,15 @@ select:focus, input:focus {
   backdrop-filter: blur(40px) saturate(150%); -webkit-backdrop-filter: blur(40px) saturate(150%);
   box-shadow: var(--shadow-sm), var(--edge-light);
 }
-.data-table { width: 100%; border-collapse: collapse; min-width: 520px; }
-.data-table th {
+.data-table, .table-container table { width: 100%; border-collapse: collapse; min-width: 520px; }
+.data-table th, .table-container table th {
   background: var(--bg-surface);
-  padding: 12px 18px; font-size: 0.68rem; color: var(--text-3);
+  padding: 14px 18px; font-size: 0.68rem; color: var(--text-3);
   text-transform: uppercase; border-bottom: 1px solid var(--border);
   text-align: left; font-weight: 700; letter-spacing: 0.04em;
 }
-.data-table td {
-  padding: 12px 18px; font-size: 0.84rem;
+.data-table td, .table-container table td {
+  padding: 14px 18px; font-size: 0.84rem;
   border-bottom: 1px solid var(--border);
 }
 .data-table .amount { font-weight: 700; font-variant-numeric: tabular-nums; }
