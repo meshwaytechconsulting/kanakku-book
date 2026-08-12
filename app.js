@@ -188,6 +188,22 @@ async function syncUserDataToCloud(userId) {
   }
 }
 
+function getEntriesCount(stateObj) {
+  if (!stateObj || !stateObj.data) return 0;
+  let count = 0;
+  Object.values(stateObj.data).forEach(d => {
+    if (d) {
+      count += (d.needs || []).length;
+      count += (d.wants || []).length;
+      count += (d.savings || []).length;
+      count += (d.deposits || []).length;
+      count += (d.banks || []).length;
+      count += (d.income?.entries || []).length;
+    }
+  });
+  return count;
+}
+
 async function fetchUserDataFromCloud(userId, isManual = false) {
   if (!userId) return;
   updateCloudSyncBadge('☁️ Fetching...', true);
@@ -203,18 +219,28 @@ async function fetchUserDataFromCloud(userId, isManual = false) {
       .select('data')
       .eq('user_id', userId)
       .maybeSingle();
-    if (!error && data && data.data && data.data.data) {
-      state = data.data;
-      saveToStorage(false);
-      renderAll();
-      updateCloudSyncBadge('☁️ Synced to Cloud', true);
-      if (isManual) showToast('Finances synchronized across devices!', 'success');
+    if (!error && data && data.data) {
+      const cloudCount = getEntriesCount(data.data);
+      const localCount = getEntriesCount(state);
+
+      if (localCount > cloudCount && !isManual) {
+        syncUserDataToCloud(userId);
+      } else if (cloudCount > 0 || isManual) {
+        state = data.data;
+        saveToStorage(false);
+        renderAll();
+        updateCloudSyncBadge('☁️ Synced to Cloud', true);
+        if (isManual) showToast('Finances synchronized across devices!', 'success');
+      }
     } else {
-      updateCloudSyncBadge('☁️ Synced to Cloud', true);
+      if (getEntriesCount(state) > 0) {
+        syncUserDataToCloud(userId);
+      }
+      updateCloudSyncBadge('☁️ Saved Locally', true);
       if (isManual) showToast('Data sync failed or no data found.', 'error');
     }
   } catch (e) {
-    updateCloudSyncBadge('☁️ Synced to Cloud', true);
+    updateCloudSyncBadge('☁️ Saved Locally', true);
     if (isManual) showToast('Error during cloud sync.', 'error');
   }
 }
@@ -747,6 +773,7 @@ function getDailyBreakdown(d) {
         itemsMap[dayNum].push({
           category: categoryName,
           name: item.name,
+          comment: item.comment || '',
           amount: Number(item.amount) || 0,
           date: item.date,
         });
@@ -1077,6 +1104,7 @@ function renderDashboard() {
   const bannerEl = document.getElementById('netIncomeBanner');
   if (bannerEl) {
     const isNegative = v.netRemainingIncome < 0;
+
     bannerEl.innerHTML = `
       <div class="banner-title">
         <span>💵 Overall Monthly Income & Deductions</span>
@@ -1085,53 +1113,36 @@ function renderDashboard() {
         <div class="banner-main-val ${isNegative ? 'text-danger' : 'text-success'}">
           ${fmt(v.netRemainingIncome)} <span style="font-size:0.85rem;font-weight:500;color:var(--text-3);">Net Remaining Income</span>
         </div>
-        <div class="banner-breakdown">
-          <div class="breakdown-item">
-            <span class="label">Total Income</span>
-            <span class="val text-success">${fmt(v.income)}</span>
-          </div>
-          <div class="breakdown-item">
-            <span class="label">- Needs Spent</span>
-            <span class="val text-info">${fmt(v.needsTotal)}</span>
-          </div>
-          <div class="breakdown-item">
-            <span class="label">- Wants Spent</span>
-            <span class="val text-warning">${fmt(v.wantsTotal)}</span>
-          </div>
-          <div class="breakdown-item">
-            <span class="label">- Savings & Deposits</span>
-            <span class="val text-muted">${fmt(v.savingsTotal)}</span>
-          </div>
-        </div>
       </div>
     `;
   }
 
   const statsEl = document.getElementById('dashboardStats');
+
   statsEl.innerHTML = `
     <div class="stat-card income">
       <div class="stat-icon">💵</div>
       <div class="stat-label">Total Income</div>
       <div class="stat-value">${fmt(v.income)}</div>
-      <div class="stat-sub">Net Left: ${fmt(v.netRemainingIncome)}</div>
+      <div class="stat-sub">From fixed & custom income</div>
     </div>
     <div class="stat-card needs">
       <div class="stat-icon">📋</div>
       <div class="stat-label">Needs Spent</div>
       <div class="stat-value">${fmt(v.needsTotal)}</div>
-      <div class="stat-sub">Reduced from income</div>
+      <div class="stat-sub">50% budget allocation</div>
     </div>
     <div class="stat-card wants">
       <div class="stat-icon">🛍️</div>
       <div class="stat-label">Wants Spent</div>
       <div class="stat-value">${fmt(v.wantsTotal)}</div>
-      <div class="stat-sub">Reduced from income</div>
+      <div class="stat-sub">10% budget allocation</div>
     </div>
     <div class="stat-card savings">
       <div class="stat-icon">🏆</div>
       <div class="stat-label">Savings & Deposits</div>
       <div class="stat-value">${fmt(v.savingsTotal)}</div>
-      <div class="stat-sub">Target: ${fmt(v.savingsBudget)}</div>
+      <div class="stat-sub">20% budget allocation</div>
     </div>
     <div class="stat-card bank">
       <div class="stat-icon">🏦</div>
@@ -1175,6 +1186,46 @@ function renderBudgetBar(v) {
     <div class="legend-item"><div class="legend-dot savings"></div>Savings ${savingsPct}%</div>
     <div class="legend-item"><div class="legend-dot balance"></div>Net Remaining ${netPct}%</div>
   `;
+
+  // Render dedicated Target & Leftover Budget Summary Grid inside Budget Allocation Card
+  let targetGrid = document.getElementById('budgetTargetGrid');
+  if (!targetGrid) {
+    targetGrid = document.createElement('div');
+    targetGrid.id = 'budgetTargetGrid';
+    targetGrid.className = 'budget-target-grid mt-4';
+    targetGrid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; border-top: 1px solid var(--border); padding-top: 16px; margin-top: 16px;';
+    legend.parentNode.appendChild(targetGrid);
+  }
+
+  const needsBalClass = v.needsBalance < 0 ? 'text-danger' : 'text-success';
+  const wantsBalClass = v.wantsBalance < 0 ? 'text-danger' : 'text-success';
+  const savingsBalClass = v.savingsBalance < 0 ? 'text-danger' : 'text-success';
+
+  targetGrid.innerHTML = `
+    <div class="target-card-item" style="background: var(--bg-surface-elevated); padding: 12px 14px; border-radius: var(--r-md); border: 1px solid var(--border);">
+      <div style="font-size: 0.72rem; color: var(--text-3); text-transform: uppercase; font-weight: 700; margin-bottom: 2px;">📋 Needs Target</div>
+      <div style="font-size: 0.95rem; font-weight: 800; color: var(--blue);">${fmt(v.needsBudget)}</div>
+      <div style="font-size: 0.75rem; margin-top: 4px; color: var(--text-2);">Spent: <strong>${fmt(v.needsTotal)}</strong> | <span class="${needsBalClass}">Left: <strong>${fmt(v.needsBalance)}</strong></span></div>
+    </div>
+
+    <div class="target-card-item" style="background: var(--bg-surface-elevated); padding: 12px 14px; border-radius: var(--r-md); border: 1px solid var(--border);">
+      <div style="font-size: 0.72rem; color: var(--text-3); text-transform: uppercase; font-weight: 700; margin-bottom: 2px;">🛍️ Wants Target</div>
+      <div style="font-size: 0.95rem; font-weight: 800; color: var(--accent);">${fmt(v.wantsBudget)}</div>
+      <div style="font-size: 0.75rem; margin-top: 4px; color: var(--text-2);">Spent: <strong>${fmt(v.wantsTotal)}</strong> | <span class="${wantsBalClass}">Left: <strong>${fmt(v.wantsBalance)}</strong></span></div>
+    </div>
+
+    <div class="target-card-item" style="background: var(--bg-surface-elevated); padding: 12px 14px; border-radius: var(--r-md); border: 1px solid var(--border);">
+      <div style="font-size: 0.72rem; color: var(--text-3); text-transform: uppercase; font-weight: 700; margin-bottom: 2px;">🏆 Savings Target</div>
+      <div style="font-size: 0.95rem; font-weight: 800; color: var(--gold);">${fmt(v.savingsBudget)}</div>
+      <div style="font-size: 0.75rem; margin-top: 4px; color: var(--text-2);">Spent: <strong>${fmt(v.savingsTotal)}</strong> | <span class="${savingsBalClass}">Left: <strong>${fmt(v.savingsBalance)}</strong></span></div>
+    </div>
+
+    <div class="target-card-item" style="background: var(--bg-surface-elevated); padding: 12px 14px; border-radius: var(--r-md); border: 1px solid var(--border);">
+      <div style="font-size: 0.72rem; color: var(--text-3); text-transform: uppercase; font-weight: 700; margin-bottom: 2px;">💵 Unallocated Target</div>
+      <div style="font-size: 0.95rem; font-weight: 800; color: var(--green);">${fmt(v.balanceBudget)}</div>
+      <div style="font-size: 0.75rem; margin-top: 4px; color: var(--text-3);">Target Unallocated Balance</div>
+    </div>
+  `;
 }
 
 function renderExpenseChart(v) {
@@ -1188,41 +1239,44 @@ function renderExpenseChart(v) {
       datasets: [{
         data: [v.needsTotal, v.wantsTotal, v.savingsTotal],
         backgroundColor: [
-          'rgba(163, 196, 243, 0.75)',
-          'rgba(207, 186, 240, 0.75)',
-          'rgba(244, 211, 94, 0.75)',
+          'rgba(96, 165, 250, 0.85)',
+          'rgba(157, 157, 250, 0.85)',
+          'rgba(250, 204, 21, 0.85)',
         ],
         borderColor: [
-          'rgba(163, 196, 243, 1)',
-          'rgba(207, 186, 240, 1)',
-          'rgba(244, 211, 94, 1)',
+          'rgba(96, 165, 250, 1)',
+          'rgba(157, 157, 250, 1)',
+          'rgba(250, 204, 21, 1)',
         ],
-        borderWidth: 1.5,
-        hoverOffset: 6,
+        borderWidth: 2,
+        hoverOffset: 8,
+        borderRadius: 4,
       }],
     },
     options: {
       responsive: true,
       maintainAspectRatio: true,
-      cutout: '72%',
+      cutout: '75%',
       plugins: {
         legend: {
           position: 'bottom',
           labels: {
-            color: 'rgba(245, 247, 250, 0.6)',
+            color: 'rgba(255, 255, 255, 0.7)',
             padding: 16,
-            font: { family: 'Inter', size: 11, weight: '500' },
+            font: { family: 'Inter', size: 12, weight: '600' },
             usePointStyle: true,
+            pointStyle: 'circle',
           },
         },
         tooltip: {
-          backgroundColor: 'rgba(20, 24, 33, 0.95)',
-          titleColor: 'rgba(245, 247, 250, 0.95)',
-          bodyColor: 'rgba(245, 247, 250, 0.6)',
-          borderColor: 'rgba(255, 255, 255, 0.1)',
+          backgroundColor: 'rgba(15, 15, 20, 0.95)',
+          titleColor: 'rgba(255, 255, 255, 0.95)',
+          bodyColor: 'rgba(255, 255, 255, 0.7)',
+          borderColor: 'rgba(255, 255, 255, 0.15)',
           borderWidth: 1,
           padding: 12,
-          cornerRadius: 10,
+          cornerRadius: 12,
+          boxPadding: 6,
           callbacks: {
             label: (ctx) => ` ${CURRENCY} ${Number(ctx.raw).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
           },
@@ -1250,10 +1304,10 @@ function renderDailyChart(dailyBreakdown) {
       datasets: [{
         label: 'Daily Spend (Needs + Wants)',
         data: values,
-        backgroundColor: values.map(v => v > 0 ? 'rgba(207, 186, 240, 0.6)' : 'rgba(255,255,255,0.02)'),
-        borderColor: values.map(v => v > 0 ? 'rgba(207, 186, 240, 0.9)' : 'transparent'),
+        backgroundColor: values.map(v => v > 0 ? 'rgba(157, 157, 250, 0.7)' : 'rgba(255,255,255,0.03)'),
+        borderColor: values.map(v => v > 0 ? 'rgba(157, 157, 250, 1)' : 'transparent'),
         borderWidth: 1,
-        borderRadius: 4,
+        borderRadius: { topLeft: 6, topRight: 6, bottomLeft: 2, bottomRight: 2 },
       }],
     },
     options: {
@@ -1262,12 +1316,13 @@ function renderDailyChart(dailyBreakdown) {
       plugins: {
         legend: { display: false },
         tooltip: {
-          backgroundColor: 'rgba(20, 24, 33, 0.95)',
-          titleColor: '#f5f7fa',
-          bodyColor: 'rgba(245, 247, 250, 0.6)',
-          borderColor: 'rgba(255, 255, 255, 0.1)',
+          backgroundColor: 'rgba(15, 15, 20, 0.95)',
+          titleColor: '#ffffff',
+          bodyColor: 'rgba(255, 255, 255, 0.7)',
+          borderColor: 'rgba(255, 255, 255, 0.15)',
           borderWidth: 1,
-          cornerRadius: 10,
+          cornerRadius: 12,
+          padding: 12,
           callbacks: {
             title: (items) => `${dailyBreakdown.dateLabelsMap[items[0].dataIndex + 1]}`,
             label: (ctx) => ` ${fmt(ctx.raw)}`,
@@ -1276,13 +1331,13 @@ function renderDailyChart(dailyBreakdown) {
       },
       scales: {
         x: {
-          grid: { color: 'rgba(255,255,255,0.03)' },
-          ticks: { color: 'rgba(245, 247, 250, 0.4)', font: { size: 9, family: 'Inter' } },
+          grid: { color: 'rgba(255,255,255,0.04)' },
+          ticks: { color: 'rgba(255, 255, 255, 0.5)', font: { size: 10, family: 'Inter', weight: '500' } },
         },
         y: {
-          grid: { color: 'rgba(255,255,255,0.03)' },
+          grid: { color: 'rgba(255,255,255,0.04)' },
           ticks: {
-            color: 'rgba(245, 247, 250, 0.4)',
+            color: 'rgba(255, 255, 255, 0.5)',
             font: { size: 10, family: 'Inter' },
             callback: (v) => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v,
           },
@@ -1392,8 +1447,7 @@ window.deleteIncomeEntry = function(id) {
   if (!d.income.entries) return;
   d.income.entries = d.income.entries.filter(e => e.id !== id);
   saveToStorage();
-  renderIncome();
-  renderDashboard();
+  renderAll();
   showToast('Income entry deleted', 'info');
 };
 
@@ -1469,7 +1523,7 @@ function recordBankBalance() {
   showToast(`Recorded balance ${fmt(balance)} for ${acc.bankName}`, 'success');
 }
 
-function deleteBankAccount(accId) {
+window.deleteBankAccount = function(accId) {
   const acc = state.registeredAccounts.find(a => a.id === accId);
   if (!acc) return;
   if (!confirm(`Delete bank account "${acc.bankName} (${acc.accountNumber})"? This will remove all balance logs for this account.`)) return;
@@ -1483,9 +1537,9 @@ function deleteBankAccount(accId) {
   });
 
   saveToStorage();
-  renderBanks();
+  renderAll();
   showToast('Account deleted', 'info');
-}
+};
 
 function renderBanks() {
   const d = getFilteredData();
@@ -1608,6 +1662,7 @@ function showDayDetails(dayNum) {
               <th>Date</th>
               <th>Category</th>
               <th>Expense Name</th>
+              <th>Comments</th>
               <th>Amount</th>
             </tr>
           </thead>
@@ -1617,6 +1672,7 @@ function showDayDetails(dayNum) {
                 <td class="text-muted">${item.date}</td>
                 <td><span style="padding:2px 8px;border-radius:4px;font-size:0.72rem;font-weight:600;background:${item.category === 'Needs' ? 'rgba(163, 196, 243, 0.15);color:#a3c4f3' : 'rgba(207, 186, 240, 0.15);color:#cfbaf0'}">${item.category}</span></td>
                 <td>${escapeHtml(item.name)}</td>
+                <td class="text-muted">${escapeHtml(item.comment || '-')}</td>
                 <td class="amount">${fmt(item.amount)}</td>
               </tr>
             `).join('')}
@@ -1651,10 +1707,10 @@ function renderDailySectionChart(breakdown) {
       datasets: [{
         label: 'Aggregated Amount (Needs + Wants)',
         data: values,
-        backgroundColor: values.map(v => v > 0 ? 'rgba(207, 186, 240, 0.5)' : 'rgba(255,255,255,0.02)'),
-        borderColor: values.map(v => v > 0 ? 'rgba(207, 186, 240, 0.8)' : 'transparent'),
+        backgroundColor: values.map(v => v > 0 ? 'rgba(157, 157, 250, 0.65)' : 'rgba(255,255,255,0.03)'),
+        borderColor: values.map(v => v > 0 ? 'rgba(157, 157, 250, 0.95)' : 'transparent'),
         borderWidth: 1,
-        borderRadius: 4,
+        borderRadius: { topLeft: 6, topRight: 6, bottomLeft: 2, bottomRight: 2 },
       }],
     },
     options: {
@@ -1663,12 +1719,13 @@ function renderDailySectionChart(breakdown) {
       plugins: {
         legend: { display: false },
         tooltip: {
-          backgroundColor: 'rgba(20, 24, 33, 0.95)',
-          titleColor: '#f5f7fa',
-          bodyColor: 'rgba(245, 247, 250, 0.6)',
-          borderColor: 'rgba(255, 255, 255, 0.1)',
+          backgroundColor: 'rgba(15, 15, 20, 0.95)',
+          titleColor: '#ffffff',
+          bodyColor: 'rgba(255, 255, 255, 0.7)',
+          borderColor: 'rgba(255, 255, 255, 0.15)',
           borderWidth: 1,
-          cornerRadius: 8,
+          cornerRadius: 10,
+          padding: 12,
           callbacks: {
             label: (ctx) => ` ${fmt(ctx.raw)}`,
           },
@@ -1676,13 +1733,13 @@ function renderDailySectionChart(breakdown) {
       },
       scales: {
         x: {
-          grid: { color: 'rgba(255,255,255,0.03)' },
-          ticks: { color: 'rgba(245, 247, 250, 0.4)', font: { size: 9, family: 'Inter' } },
+          grid: { color: 'rgba(255,255,255,0.04)' },
+          ticks: { color: 'rgba(255, 255, 255, 0.5)', font: { size: 10, family: 'Inter', weight: '500' } },
         },
         y: {
-          grid: { color: 'rgba(255,255,255,0.03)' },
+          grid: { color: 'rgba(255,255,255,0.04)' },
           ticks: {
-            color: 'rgba(245, 247, 250, 0.4)',
+            color: 'rgba(255, 255, 255, 0.5)',
             font: { size: 10, family: 'Inter' },
             callback: (v) => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v,
           },
@@ -1778,7 +1835,7 @@ function recordSavingsEntry() {
   showToast(`Recorded ${fmt(amount)} for ${inst.name}`, 'success');
 }
 
-function deleteSavingsInstrument(instId) {
+window.deleteSavingsInstrument = function(instId) {
   const inst = state.registeredSavingsInstruments.find(i => i.id === instId);
   if (!inst) return;
   if (!confirm(`Delete savings instrument "${inst.name} (${inst.accountNumber})"? This will remove all log entries for this instrument.`)) return;
@@ -1795,9 +1852,9 @@ function deleteSavingsInstrument(instId) {
   });
 
   saveToStorage();
-  renderSavings();
+  renderAll();
   showToast('Savings instrument deleted', 'info');
-}
+};
 
 function renderSavings() {
   const d = getFilteredData();
@@ -2249,7 +2306,7 @@ function renderWants() {
   renderCategoryBudget('wantsBudget', 'Wants Budget', v.wantsBudget, v.wantsTotal, 'var(--accent)');
 
   if (!d.wants || d.wants.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">🛍️</div><p>No wants expenses added yet</p></div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">🛍️</div><p>No wants expenses added yet</p></div></td></tr>`;
   } else {
     const sortedWants = d.wants
       .map((item, originalIndex) => ({ item, originalIndex }))
@@ -2261,6 +2318,7 @@ function renderWants() {
         <td class="text-muted">${w.date || getTodayDate()}</td>
         <td>${escapeHtml(w.name)}</td>
         <td>${getPaymentSourceBadge(w.paymentSource)}</td>
+        <td class="text-muted">${escapeHtml(w.comment || '-')}</td>
         <td class="amount">${fmt(w.amount)}</td>
         <td>
           <div class="actions">
@@ -2283,6 +2341,7 @@ function renderWants() {
 function addWants() {
   const date = document.getElementById('wantsDateInput').value || getTodayDate();
   const name = document.getElementById('wantsNameInput').value.trim();
+  const comment = document.getElementById('wantsCommentInput') ? document.getElementById('wantsCommentInput').value.trim() : '';
   const amount = Number(document.getElementById('wantsAmountInput').value);
   const paymentSource = document.getElementById('wantsPaymentSourceSelect')?.value || 'cash';
 
@@ -2290,13 +2349,14 @@ function addWants() {
   if (isNaN(amount) || amount <= 0) { showToast('Enter valid amount', 'error'); return; }
 
   const d = getCurrentData();
-  d.wants.push({ date, createdAt: new Date().toISOString(), name, amount, paymentSource });
+  d.wants.push({ date, createdAt: new Date().toISOString(), name, comment, amount, paymentSource });
   processPaymentSourceEffect(paymentSource, amount, name, date);
 
   saveToStorage();
   renderAll();
 
   document.getElementById('wantsNameInput').value = '';
+  if (document.getElementById('wantsCommentInput')) document.getElementById('wantsCommentInput').value = '';
   document.getElementById('wantsAmountInput').value = '';
   showToast(`${name} added`, 'success');
 }
@@ -2310,7 +2370,7 @@ function renderNeeds() {
   renderCategoryBudget('needsBudget', 'Needs Budget', v.needsBudget, v.needsTotal, 'var(--blue)');
 
   if (!d.needs || d.needs.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">📋</div><p>No needs expenses added yet</p></div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">📋</div><p>No needs expenses added yet</p></div></td></tr>`;
   } else {
     const sortedNeeds = d.needs
       .map((item, originalIndex) => ({ item, originalIndex }))
@@ -2322,6 +2382,7 @@ function renderNeeds() {
         <td class="text-muted">${n.date || getTodayDate()}</td>
         <td>${escapeHtml(n.name)}</td>
         <td>${getPaymentSourceBadge(n.paymentSource)}</td>
+        <td class="text-muted">${escapeHtml(n.comment || '-')}</td>
         <td class="amount">${fmt(n.amount)}</td>
         <td>
           <div class="actions">
@@ -2344,6 +2405,7 @@ function renderNeeds() {
 function addNeeds() {
   const date = document.getElementById('needsDateInput').value || getTodayDate();
   const name = document.getElementById('needsNameInput').value.trim();
+  const comment = document.getElementById('needsCommentInput') ? document.getElementById('needsCommentInput').value.trim() : '';
   const amount = Number(document.getElementById('needsAmountInput').value);
   const paymentSource = document.getElementById('needsPaymentSourceSelect')?.value || 'cash';
 
@@ -2351,13 +2413,14 @@ function addNeeds() {
   if (isNaN(amount) || amount <= 0) { showToast('Enter valid amount', 'error'); return; }
 
   const d = getCurrentData();
-  d.needs.push({ date, createdAt: new Date().toISOString(), name, amount, paymentSource });
+  d.needs.push({ date, createdAt: new Date().toISOString(), name, comment, amount, paymentSource });
   processPaymentSourceEffect(paymentSource, amount, name, date);
 
   saveToStorage();
   renderAll();
 
   document.getElementById('needsNameInput').value = '';
+  if (document.getElementById('needsCommentInput')) document.getElementById('needsCommentInput').value = '';
   document.getElementById('needsAmountInput').value = '';
   showToast(`${name} added`, 'success');
 }
@@ -2394,16 +2457,19 @@ function renderCategoryBudget(elementId, title, budget, spent, color) {
 }
 
 // ─── Generic Delete & Edit ────────────────────
-function deleteItem(type, index) {
+window.deleteItem = function(type, index) {
   const d = getCurrentData();
   if (!d[type] || index < 0 || index >= d[type].length) return;
   const item = d[type][index];
-  if (!confirm(`Delete "${item.name || item.bankName}"?`)) return;
+  const name = item.name || item.bankName || 'item';
+  if (!confirm(`Delete "${name}"?`)) return;
   d[type].splice(index, 1);
   saveToStorage();
-  renderSection(getSectionForType(type));
+  renderAll();
   showToast('Deleted', 'info');
-}
+};
+
+window.openEditModal = openEditModal;
 
 function getSectionForType(type) {
   const map = { banks: 'banks', deposits: 'savings', wants: 'wants', needs: 'needs', savings: 'savings' };
@@ -2485,6 +2551,16 @@ function openEditModal(type, index) {
           <label>Name</label>
           <input type="text" id="editField1" value="${escapeHtml(item.name)}">
         </div>
+        <div class="form-group mb-4">
+          <label>Paid Via</label>
+          <select id="editPaymentSource" class="payment-source-select">
+            <option value="cash">💵 Cash</option>
+          </select>
+        </div>
+        <div class="form-group mb-4">
+          <label>Comments</label>
+          <input type="text" id="editComment" value="${escapeHtml(item.comment || '')}" placeholder="Optional notes">
+        </div>
         <div class="form-group">
           <label>Amount (₹)</label>
           <input type="number" id="editField2" value="${item.amount}" min="0" step="0.01">
@@ -2494,6 +2570,13 @@ function openEditModal(type, index) {
   }
 
   body.innerHTML = formHtml;
+  if (type === 'wants' || type === 'needs') {
+    renderPaymentSourceOptions();
+    const psSelect = document.getElementById('editPaymentSource');
+    if (psSelect && item.paymentSource) {
+      psSelect.value = item.paymentSource;
+    }
+  }
   modal.classList.add('active');
 }
 
@@ -2504,13 +2587,17 @@ function closeEditModal() {
 
 function saveEdit() {
   if (!editContext) return;
+  const targetType = editContext.type;
+  const targetIndex = editContext.index;
   const d = getCurrentData();
-  const item = d[editContext.type][editContext.index];
-  const editDate = document.getElementById('editDate') ? document.getElementById('editDate').value : getTodayDate();
+  const item = d[targetType] ? d[targetType][targetIndex] : null;
 
+  if (!item) return;
+
+  const editDate = document.getElementById('editDate') ? document.getElementById('editDate').value : getTodayDate();
   item.date = editDate;
 
-  switch (editContext.type) {
+  switch (targetType) {
     case 'banks':
       item.bankName = document.getElementById('editField1').value.trim();
       item.accountNumber = document.getElementById('editFieldAcc').value.trim();
@@ -2526,41 +2613,75 @@ function saveEdit() {
     case 'wants':
     case 'needs':
       item.name = document.getElementById('editField1').value.trim();
+      if (document.getElementById('editComment')) {
+        item.comment = document.getElementById('editComment').value.trim();
+      }
       item.amount = Number(document.getElementById('editField2').value) || 0;
+      if (document.getElementById('editPaymentSource')) {
+        item.paymentSource = document.getElementById('editPaymentSource').value;
+      }
       break;
   }
 
   saveToStorage();
   closeEditModal();
-  renderSection(getSectionForType(editContext?.type || 'dashboard'));
+  renderAll();
   showToast('Changes saved', 'success');
 }
 
 // ─── CSV Export / Import ──────────────────────
 function exportCSV() {
-  const rows = [['Date', 'Category', 'Type', 'Bank/Particulars', 'Account Number', 'Amount/Balance']];
+  const rows = [['Date', 'Month', 'Category', 'Type', 'Particulars/Name', 'Account Number/Paid Via', 'Comments', 'Amount/Balance']];
 
-  Object.keys(state.data).forEach(month => {
+  Object.keys(state.data || {}).forEach(month => {
     const d = state.data[month];
-    (d.needs || []).forEach(item => rows.push([item.date || getTodayDate(), 'Needs', 'Expense', item.name, '', item.amount]));
-    (d.wants || []).forEach(item => rows.push([item.date || getTodayDate(), 'Wants', 'Expense', item.name, '', item.amount]));
-    (d.savings || []).forEach(item => rows.push([item.date || getTodayDate(), 'Savings', item.type || 'Savings', item.name, item.accountNumber || '', item.amount]));
-    (d.deposits || []).forEach(item => rows.push([item.date || getTodayDate(), 'Deposits', item.type || 'FD', item.name, item.accountNumber || '', item.amount]));
-    (d.banks || []).forEach(item => rows.push([item.date || getTodayDate(), 'Banks', 'Account', item.bankName || item.name, item.accountNumber || '', item.balance]));
+    if (!d) return;
+
+    // Export Income Entries
+    if (d.income && Array.isArray(d.income.entries)) {
+      d.income.entries.forEach(item => {
+        rows.push([item.date || getTodayDate(), month, 'Income', 'Income', item.source || item.name || 'Income', item.paymentSource || '', item.comment || '', item.amount || 0]);
+      });
+    }
+
+    // Export Needs
+    (d.needs || []).forEach(item => {
+      rows.push([item.date || getTodayDate(), month, 'Needs', 'Expense', item.name || '', item.paymentSource || '', item.comment || '', item.amount || 0]);
+    });
+
+    // Export Wants
+    (d.wants || []).forEach(item => {
+      rows.push([item.date || getTodayDate(), month, 'Wants', 'Expense', item.name || '', item.paymentSource || '', item.comment || '', item.amount || 0]);
+    });
+
+    // Export Savings
+    (d.savings || []).forEach(item => {
+      rows.push([item.date || getTodayDate(), month, 'Savings', item.type || 'Savings', item.name || '', item.accountNumber || '', item.comment || '', item.amount || 0]);
+    });
+
+    // Export Deposits
+    (d.deposits || []).forEach(item => {
+      rows.push([item.date || getTodayDate(), month, 'Deposits', item.type || 'FD', item.name || '', item.accountNumber || '', item.comment || '', item.amount || 0]);
+    });
+
+    // Export Bank Accounts
+    (d.banks || []).forEach(item => {
+      rows.push([item.date || getTodayDate(), month, 'Banks', 'Account', item.bankName || item.name || '', item.accountNumber || '', item.comment || '', item.balance || 0]);
+    });
   });
 
-  const csvContent = rows.map(r => r.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
+  const csvContent = rows.map(r => r.map(cell => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `Kanakku_Book_${state.currentMonth.replace(/\s+/g, '_')}.csv`;
+  a.download = `Kanakku_Book_${(state.currentMonth || 'Export').replace(/\s+/g, '_')}.csv`;
   a.click();
   URL.revokeObjectURL(url);
   showToast('CSV Exported', 'success');
 }
 
-function importCSV(file) {
+function importCSV(file, callback) {
   const reader = new FileReader();
   reader.onload = function(e) {
     try {
@@ -2568,51 +2689,183 @@ function importCSV(file) {
       const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
       if (lines.length <= 1) {
         showToast('Empty or invalid CSV', 'error');
+        if (callback) callback(false);
         return;
       }
 
       const d = getCurrentData();
       let importedCount = 0;
 
+      // Wipe existing month data for fresh CSV import replacement
+      d.needs = [];
+      d.wants = [];
+      d.savings = [];
+      d.income = { total: 0, entries: [], needsPct: 50, savingsPct: 20, wantsPct: 10 };
+
       for (let i = 1; i < lines.length; i++) {
         const line = lines[i];
         const parts = line.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g) || line.split(',');
         if (parts.length >= 4) {
           const cleanParts = parts.map(p => p.replace(/^"|"$/g, '').trim());
-          const date = cleanParts[0] || getTodayDate();
-          const category = (cleanParts[1] || '').toLowerCase();
-          const type = cleanParts[2] || '';
-          const name = cleanParts[3] || 'Imported Entry';
-          const accNum = cleanParts[4] || '';
-          const amount = Number(cleanParts[5] || cleanParts[4]) || 0;
+          
+          let date = cleanParts[0] || getTodayDate();
+          let month = '';
+          let category = '';
+          let type = '';
+          let name = '';
+          let accNum = '';
+          let comment = '';
+          let amount = 0;
 
-          if (category.includes('need')) {
-            d.needs.push({ date, name, amount });
+          if (cleanParts.length >= 8) {
+            month = cleanParts[1];
+            category = (cleanParts[2] || '').toLowerCase();
+            type = cleanParts[3] || '';
+            name = cleanParts[4] || 'Imported Entry';
+            accNum = cleanParts[5] || '';
+            comment = cleanParts[6] || '';
+            amount = Number(cleanParts[7]) || 0;
+          } else {
+            category = (cleanParts[1] || '').toLowerCase();
+            type = cleanParts[2] || '';
+            name = cleanParts[3] || 'Imported Entry';
+            accNum = cleanParts[4] || '';
+            comment = cleanParts[5] || '';
+            amount = Number(cleanParts[6] || cleanParts[5] || cleanParts[4]) || 0;
+          }
+
+          if (category.includes('income') || category.includes('inc')) {
+            if (!d.income) d.income = { total: 0, entries: [], needsPct: 50, savingsPct: 20, wantsPct: 10 };
+            if (!d.income.entries) d.income.entries = [];
+            d.income.entries.push({
+              id: 'inc_' + Date.now() + Math.random().toString(36).substr(2, 4),
+              date,
+              source: name,
+              amount,
+              comment
+            });
+            d.income.total = d.income.entries.reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+          } else if (category.includes('need')) {
+            if (!d.needs) d.needs = [];
+            d.needs.push({ id: 'need_' + Date.now() + Math.random().toString(36).substr(2, 4), date, name, amount, comment, paymentSource: accNum || 'cash' });
           } else if (category.includes('want')) {
-            d.wants.push({ date, name, amount });
+            if (!d.wants) d.wants = [];
+            d.wants.push({ id: 'want_' + Date.now() + Math.random().toString(36).substr(2, 4), date, name, amount, comment, paymentSource: accNum || 'cash' });
           } else if (category.includes('sav')) {
-            d.savings.push({ date, type: type || 'Savings', accountNumber: accNum, name, amount });
+            if (!d.savings) d.savings = [];
+            d.savings.push({ id: 'sav_' + Date.now() + Math.random().toString(36).substr(2, 4), date, type: type || 'Savings', name, accountNumber: accNum, amount, comment });
           } else if (category.includes('dep')) {
-            d.deposits.push({ date, type: type === 'RD' ? 'RD' : 'FD', accountNumber: accNum, name, amount });
+            if (!d.deposits) d.deposits = [];
+            d.deposits.push({ id: 'dep_' + Date.now() + Math.random().toString(36).substr(2, 4), date, type: type === 'RD' ? 'RD' : 'FD', name, accountNumber: accNum, amount, comment });
           } else if (category.includes('bank')) {
+            if (!d.banks) d.banks = [];
             let acc = state.registeredAccounts.find(a => a.accountNumber === accNum || a.bankName.toLowerCase() === name.toLowerCase());
             if (!acc) {
               acc = { id: 'acc_' + Date.now() + Math.random().toString(36).substr(2, 4), bankName: name, accountNumber: accNum || 'ACC' + Math.floor(Math.random()*1000) };
               state.registeredAccounts.push(acc);
             }
-            d.banks.push({ date, accountId: acc.id, bankName: acc.bankName, accountNumber: acc.accountNumber, balance: amount });
+            d.banks.push({ id: 'bnk_' + Date.now() + Math.random().toString(36).substr(2, 4), date, accountId: acc.id, bankName: acc.bankName, accountNumber: acc.accountNumber, balance: amount });
           } else {
-            d.wants.push({ date, name, amount });
+            if (!d.wants) d.wants = [];
+            d.wants.push({ id: 'want_' + Date.now() + Math.random().toString(36).substr(2, 4), date, name, amount, comment });
           }
           importedCount++;
         }
       }
 
-      saveToStorage();
+      saveToStorage(true);
       renderAll();
-      showToast(`Imported ${importedCount} entries from CSV`, 'success');
+      showToast('Imported successfully', 'success');
+      if (callback) callback(true);
     } catch (err) {
+      console.error('CSV import error:', err);
       showToast('Error parsing CSV', 'error');
+      if (callback) callback(false);
+    }
+  };
+  reader.readAsText(file);
+}
+
+// ─── Full JSON Backup / Restore ───────────────
+function exportJSONBackup() {
+  const jsonStr = JSON.stringify(state, null, 2);
+  const blob = new Blob([jsonStr], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `Kanakku_Book_Full_Backup_${getTodayDate()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('Full JSON Backup exported!', 'success');
+}
+
+function importJSONBackup(file, callback) {
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const importedData = JSON.parse(e.target.result);
+      if (!importedData || typeof importedData !== 'object') {
+        showToast('Invalid JSON backup file format.', 'error');
+        if (callback) callback(false);
+        return;
+      }
+
+      if (importedData.data && typeof importedData.data === 'object') {
+        // Full state backup
+        state = { ...state, ...importedData };
+      } else if (importedData.income || importedData.needs || importedData.wants || importedData.savings) {
+        // Single month object
+        const currentM = state.currentMonth || getCurrentMonthName();
+        state.data[currentM] = { ...createDefaultMonthData(), ...importedData };
+      } else {
+        // Object containing month maps (e.g. { "Aug 2026": { ... } })
+        let monthFound = false;
+        Object.keys(importedData).forEach(k => {
+          if (importedData[k] && typeof importedData[k] === 'object' && (importedData[k].needs || importedData[k].wants || importedData[k].income || importedData[k].savings || importedData[k].banks)) {
+            state.data[k] = { ...createDefaultMonthData(), ...importedData[k] };
+            monthFound = true;
+          }
+        });
+        if (!monthFound) {
+          showToast('No valid financial entries found in JSON file.', 'error');
+          if (callback) callback(false);
+          return;
+        }
+      }
+
+      // Sanitize every month to make sure income and all fields exist
+      Object.keys(state.data || {}).forEach(m => {
+        const monthObj = state.data[m];
+        if (!monthObj) return;
+        if (!monthObj.income) monthObj.income = { total: 0, entries: [], needsPct: 50, savingsPct: 20, wantsPct: 10 };
+        if (!monthObj.income.entries) monthObj.income.entries = [];
+        monthObj.income.total = monthObj.income.entries.reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+        if (!monthObj.needs) monthObj.needs = [];
+        if (!monthObj.wants) monthObj.wants = [];
+        if (!monthObj.savings) monthObj.savings = [];
+        if (!monthObj.deposits) monthObj.deposits = [];
+        if (!monthObj.banks) monthObj.banks = [];
+        if (!monthObj.dailyExpenses) monthObj.dailyExpenses = {};
+        if (!monthObj.loansAndCardsData) monthObj.loansAndCardsData = {};
+      });
+
+      if (!Array.isArray(state.registeredAccounts)) state.registeredAccounts = [];
+      if (!Array.isArray(state.registeredSavingsInstruments)) state.registeredSavingsInstruments = [];
+
+      // If active month has 0 entries, automatically switch currentMonth to the first month with entries
+      const monthsWithData = Object.keys(state.data || {}).filter(m => getEntriesCount({ data: { [m]: state.data[m] } }) > 0);
+      if (monthsWithData.length > 0 && getEntriesCount({ data: { [state.currentMonth]: state.data[state.currentMonth] } }) === 0) {
+        state.currentMonth = monthsWithData[0];
+      }
+
+      saveToStorage(true);
+      renderAll();
+      showToast('Imported successfully', 'success');
+      if (callback) callback(true);
+    } catch (err) {
+      console.error('JSON import error:', err);
+      showToast('Error reading JSON backup file.', 'error');
+      if (callback) callback(false);
     }
   };
   reader.readAsText(file);
@@ -2926,22 +3179,324 @@ function setupEventListeners() {
   document.getElementById('dayModalClose').addEventListener('click', closeDayModal);
   document.getElementById('dayModalDone').addEventListener('click', closeDayModal);
 
-  document.getElementById('exportBtn').addEventListener('click', exportCSV);
-  document.getElementById('importBtn').addEventListener('click', () => {
-    document.getElementById('importFileInput').click();
-  });
-  document.getElementById('importFileInput').addEventListener('change', (e) => {
-    if (e.target.files[0]) {
-      importCSV(e.target.files[0]);
-      e.target.value = '';
+  // ─── Export As Dropdown Event Handlers ───
+  const exportAsBtn = document.getElementById('exportAsBtn');
+  const exportDropdownMenu = document.getElementById('exportDropdownMenu');
+  if (exportAsBtn && exportDropdownMenu) {
+    exportAsBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      exportDropdownMenu.classList.toggle('active');
+    });
+    document.addEventListener('click', () => {
+      exportDropdownMenu.classList.remove('active');
+    });
+  }
+
+  const exportCsvOption = document.getElementById('exportCsvOption');
+  if (exportCsvOption) {
+    exportCsvOption.addEventListener('click', () => {
+      if (exportDropdownMenu) exportDropdownMenu.classList.remove('active');
+      exportCSV();
+    });
+  }
+
+  const exportJsonOption = document.getElementById('exportJsonOption');
+  if (exportJsonOption) {
+    exportJsonOption.addEventListener('click', () => {
+      if (exportDropdownMenu) exportDropdownMenu.classList.remove('active');
+      exportJSONBackup();
+    });
+  }
+
+  // ─── Universal Import Modal Popup & File Handlers ───
+  let pendingImportFile = null;
+
+  function openImportModal() {
+    pendingImportFile = null;
+    const badge = document.getElementById('selectedFileBadge');
+    const content = document.getElementById('dropzoneContent');
+    const input = document.getElementById('universalFileInput');
+    const btn = document.getElementById('confirmImportBtn');
+    const banner = document.getElementById('importModalErrorBanner');
+    
+    if (badge) badge.style.display = 'none';
+    if (content) content.style.display = 'block';
+    if (input) input.value = '';
+    if (btn) btn.disabled = true;
+    if (banner) banner.style.display = 'none';
+
+    const modal = document.getElementById('importModal');
+    if (modal) modal.classList.add('active');
+  }
+
+  function closeImportModal() {
+    const modal = document.getElementById('importModal');
+    if (modal) modal.classList.remove('active');
+    pendingImportFile = null;
+  }
+
+  function handleImportFileSelect(file) {
+    if (!file) return;
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (ext !== 'csv' && ext !== 'json') {
+      const errBanner = document.getElementById('importModalErrorBanner');
+      if (errBanner) {
+        errBanner.style.display = 'flex';
+        errBanner.innerHTML = '<span>⚠️ Invalid file format. Please select a .csv or .json file.</span>';
+      }
+      return;
     }
-  });
+
+    pendingImportFile = file;
+    const banner = document.getElementById('importModalErrorBanner');
+    const content = document.getElementById('dropzoneContent');
+    const badge = document.getElementById('selectedFileBadge');
+    const icon = document.getElementById('selectedFileIcon');
+    const nameEl = document.getElementById('selectedFileName');
+    const sizeEl = document.getElementById('selectedFileSize');
+    const btn = document.getElementById('confirmImportBtn');
+
+    if (banner) banner.style.display = 'none';
+    if (content) content.style.display = 'none';
+    if (badge) badge.style.display = 'flex';
+    if (icon) icon.textContent = ext === 'json' ? '💾' : '📄';
+    if (nameEl) nameEl.textContent = file.name;
+    if (sizeEl) sizeEl.textContent = `${(file.size / 1024).toFixed(1)} KB`;
+    if (btn) btn.disabled = false;
+  }
+
+  const openImportModalBtn = document.getElementById('openImportModalBtn');
+  if (openImportModalBtn) openImportModalBtn.addEventListener('click', openImportModal);
+
+  const importModalClose = document.getElementById('importModalClose');
+  if (importModalClose) importModalClose.addEventListener('click', closeImportModal);
+
+  const importModalCancel = document.getElementById('importModalCancel');
+  if (importModalCancel) importModalCancel.addEventListener('click', closeImportModal);
+
+  const importDropzone = document.getElementById('importDropzone');
+  const universalFileInput = document.getElementById('universalFileInput');
+
+  if (importDropzone && universalFileInput) {
+    importDropzone.addEventListener('click', (e) => {
+      if (e.target.closest('#removeSelectedFileBtn')) return;
+      universalFileInput.click();
+    });
+
+    universalFileInput.addEventListener('change', (e) => {
+      if (e.target.files[0]) handleImportFileSelect(e.target.files[0]);
+    });
+
+    importDropzone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      importDropzone.classList.add('dragover');
+    });
+
+    importDropzone.addEventListener('dragleave', () => {
+      importDropzone.classList.remove('dragover');
+    });
+
+    importDropzone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      importDropzone.classList.remove('dragover');
+      if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+        handleImportFileSelect(e.dataTransfer.files[0]);
+      }
+    });
+  }
+
+  const removeSelectedFileBtn = document.getElementById('removeSelectedFileBtn');
+  if (removeSelectedFileBtn) {
+    removeSelectedFileBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      pendingImportFile = null;
+      document.getElementById('selectedFileBadge').style.display = 'none';
+      document.getElementById('dropzoneContent').style.display = 'block';
+      document.getElementById('universalFileInput').value = '';
+      document.getElementById('confirmImportBtn').disabled = true;
+    });
+  }
+
+  const confirmImportBtn = document.getElementById('confirmImportBtn');
+  if (confirmImportBtn) {
+    confirmImportBtn.addEventListener('click', () => {
+      if (!pendingImportFile) return;
+      const ext = pendingImportFile.name.split('.').pop().toLowerCase();
+      if (ext === 'csv') {
+        importCSV(pendingImportFile, (success) => {
+          if (success) closeImportModal();
+        });
+      } else if (ext === 'json') {
+        importJSONBackup(pendingImportFile, (success) => {
+          if (success) closeImportModal();
+        });
+      }
+    });
+  }
 
   document.getElementById('hamburgerBtn').addEventListener('click', () => {
     document.getElementById('sidebar').classList.add('open');
     document.getElementById('sidebarOverlay').classList.add('active');
   });
   document.getElementById('sidebarOverlay').addEventListener('click', closeMobileSidebar);
+
+  // AI Assistant Event Bindings
+  const aiFabBtn = document.getElementById('aiFabBtn');
+  if (aiFabBtn) aiFabBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleAIDrawer(); });
+
+  const aiMinimizeDrawerBtn = document.getElementById('aiMinimizeDrawerBtn');
+  if (aiMinimizeDrawerBtn) aiMinimizeDrawerBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleAIDrawer(false); });
+
+  const aiOpenSettingsBtn = document.getElementById('aiOpenSettingsBtn');
+  if (aiOpenSettingsBtn) aiOpenSettingsBtn.addEventListener('click', (e) => { e.stopPropagation(); openAISettingsModal(); });
+
+  const openAIGuideBtn = document.getElementById('openAIGuideBtn');
+  if (openAIGuideBtn) openAIGuideBtn.addEventListener('click', (e) => { e.stopPropagation(); openAIGuideModal(); });
+
+  const aiGuideModalClose = document.getElementById('aiGuideModalClose');
+  if (aiGuideModalClose) aiGuideModalClose.addEventListener('click', (e) => { e.stopPropagation(); closeAIGuideModal(); });
+
+  const aiGuideModalOk = document.getElementById('aiGuideModalOk');
+  if (aiGuideModalOk) aiGuideModalOk.addEventListener('click', (e) => { e.stopPropagation(); closeAIGuideModal(); });
+
+  const aiSettingsModalClose = document.getElementById('aiSettingsModalClose');
+  if (aiSettingsModalClose) aiSettingsModalClose.addEventListener('click', (e) => { e.stopPropagation(); closeAISettingsModal(); });
+
+  const aiSettingsModalCancel = document.getElementById('aiSettingsModalCancel');
+  if (aiSettingsModalCancel) aiSettingsModalCancel.addEventListener('click', (e) => { e.stopPropagation(); closeAISettingsModal(); });
+
+  const aiSettingsModalSave = document.getElementById('aiSettingsModalSave');
+  if (aiSettingsModalSave) aiSettingsModalSave.addEventListener('click', (e) => { e.stopPropagation(); handleSaveAISettings(); });
+
+  const aiTestConnectionBtn = document.getElementById('aiTestConnectionBtn');
+  if (aiTestConnectionBtn) aiTestConnectionBtn.addEventListener('click', (e) => { e.stopPropagation(); testAIConnection(); });
+
+  const aiProviderSelect = document.getElementById('aiProviderSelect');
+  if (aiProviderSelect) aiProviderSelect.addEventListener('change', (e) => toggleAIProviderFields(e.target.value));
+
+  const aiChatForm = document.getElementById('aiChatForm');
+  if (aiChatForm) aiChatForm.addEventListener('submit', (e) => { e.preventDefault(); handleAIChatSubmit(); });
+
+  const aiClearChatBtn = document.getElementById('aiClearChatBtn');
+  if (aiClearChatBtn) {
+    aiClearChatBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      aiChatHistory = [];
+      const msgContainer = document.getElementById('aiChatMessages');
+      if (msgContainer) {
+        msgContainer.innerHTML = `
+          <div class="ai-msg assistant">
+            <div class="ai-msg-bubble">
+              👋 Chat cleared! How can I assist you with your budget today?
+            </div>
+          </div>
+        `;
+      }
+      showToast('Chat history cleared', 'info');
+    });
+  }
+
+  const openStmtBtn = document.getElementById('openStatementUploadBtn');
+  if (openStmtBtn) {
+    openStmtBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openStatementUploadModal();
+    });
+  }
+
+  const stmtDropzone = document.getElementById('statementDropzone');
+  const stmtFileInput = document.getElementById('statementFileInput');
+  if (stmtDropzone && stmtFileInput) {
+    stmtDropzone.addEventListener('click', (e) => {
+      if (e.target.closest('#removeStmtFileBtn')) return;
+      stmtFileInput.click();
+    });
+
+    stmtFileInput.addEventListener('change', (e) => {
+      if (e.target.files[0]) handleStatementFileSelect(e.target.files[0]);
+    });
+
+    stmtDropzone.addEventListener('dragover', (e) => { e.preventDefault(); stmtDropzone.classList.add('dragover'); });
+    stmtDropzone.addEventListener('dragleave', () => stmtDropzone.classList.remove('dragover'));
+    stmtDropzone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      stmtDropzone.classList.remove('dragover');
+      if (e.dataTransfer.files && e.dataTransfer.files[0]) handleStatementFileSelect(e.dataTransfer.files[0]);
+    });
+  }
+
+  const removeStmtFileBtn = document.getElementById('removeStmtFileBtn');
+  if (removeStmtFileBtn) {
+    removeStmtFileBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      pendingStatementFile = null;
+      document.getElementById('stmtSelectedFileBadge').style.display = 'none';
+      document.getElementById('stmtDropzoneContent').style.display = 'block';
+      document.getElementById('statementFileInput').value = '';
+      document.getElementById('confirmStmtExtractBtn').disabled = true;
+    });
+  }
+
+  const confirmStmtExtractBtn = document.getElementById('confirmStmtExtractBtn');
+  if (confirmStmtExtractBtn) confirmStmtExtractBtn.addEventListener('click', extractStatementTransactions);
+
+  const statementUploadClose = document.getElementById('statementUploadClose');
+  if (statementUploadClose) statementUploadClose.addEventListener('click', closeStatementUploadModal);
+  const statementUploadCancel = document.getElementById('statementUploadCancel');
+  if (statementUploadCancel) statementUploadCancel.addEventListener('click', closeStatementUploadModal);
+
+  // Wizard Listeners
+  const statementWizardClose = document.getElementById('statementWizardClose');
+  if (statementWizardClose) statementWizardClose.addEventListener('click', closeWizardModal);
+  const wizardCancelBtn = document.getElementById('wizardCancelBtn');
+  if (wizardCancelBtn) wizardCancelBtn.addEventListener('click', closeWizardModal);
+  const wizardPrevBtn = document.getElementById('wizardPrevBtn');
+  if (wizardPrevBtn) wizardPrevBtn.addEventListener('click', () => navigateWizardStep(-1));
+  const wizardNextBtn = document.getElementById('wizardNextBtn');
+  if (wizardNextBtn) wizardNextBtn.addEventListener('click', () => navigateWizardStep(1));
+  const wizardSubmitBtn = document.getElementById('wizardSubmitBtn');
+  if (wizardSubmitBtn) wizardSubmitBtn.addEventListener('click', submitWizardImport);
+  const wizardSmartCategorizeBtn = document.getElementById('wizardSmartCategorizeBtn');
+  if (wizardSmartCategorizeBtn) wizardSmartCategorizeBtn.addEventListener('click', wizardSmartCategorize);
+
+  ['bucketNeeds', 'bucketWants', 'bucketIncome'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+        el.classList.add('dragover');
+      });
+      el.addEventListener('dragenter', (e) => {
+        e.preventDefault();
+        el.classList.add('dragover');
+      });
+      el.addEventListener('dragleave', () => el.classList.remove('dragover'));
+      el.addEventListener('drop', (e) => {
+        e.preventDefault();
+        el.classList.remove('dragover');
+        const transId = e.dataTransfer ? e.dataTransfer.getData('text/plain') : null;
+        const cat = el.getAttribute('data-category');
+        if (transId && cat) assignTransCategory(transId, cat);
+      });
+    }
+  });
+
+  const quickChipsContainer = document.getElementById('aiQuickChips');
+  if (quickChipsContainer) {
+    quickChipsContainer.addEventListener('click', (e) => {
+      const chip = e.target.closest('.ai-chip');
+      if (!chip || chip.id === 'openStatementUploadBtn') return;
+      e.stopPropagation();
+      const prompt = chip.getAttribute('data-prompt');
+      if (prompt) {
+        document.getElementById('aiChatInput').value = prompt;
+        handleAIChatSubmit();
+      }
+    });
+  }
+
+  updateAIDrawerStatusBadge();
 
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
@@ -2950,8 +3505,959 @@ function setupEventListeners() {
       closeDayModal();
       closeCustomTypeModal();
       closeUserSwitchModal();
+      closeAISettingsModal();
+      closeImportModal();
+      closeStatementUploadModal();
+      closeWizardModal();
+      toggleAIDrawer(false);
     }
   });
+}
+
+function getAISettings() {
+  const defaults = {
+    provider: 'local',
+    baseUrl: 'http://localhost:11434/v1',
+    apiKey: '',
+    model: 'llama3.2',
+    systemPrompt: 'You are an expert personal financial advisor for கணக்கு Book.'
+  };
+  try {
+    const saved = localStorage.getItem('kanakku_ai_settings');
+    return saved ? { ...defaults, ...JSON.parse(saved) } : defaults;
+  } catch (e) {
+    return defaults;
+  }
+}
+
+function handleSaveAISettings() {
+  const settings = {
+    provider: document.getElementById('aiProviderSelect').value,
+    baseUrl: document.getElementById('aiBaseUrlInput').value.trim() || 'http://localhost:11434/v1',
+    apiKey: document.getElementById('aiApiKeyInput').value.trim(),
+    model: document.getElementById('aiModelInput').value.trim() || 'llama3.2',
+    systemPrompt: document.getElementById('aiSystemPromptInput').value.trim()
+  };
+  saveAISettings(settings);
+  closeAISettingsModal();
+  showToast('AI Settings saved', 'success');
+}
+
+function saveAISettings(settings) {
+  localStorage.setItem('kanakku_ai_settings', JSON.stringify(settings));
+  updateAIDrawerStatusBadge();
+}
+
+function updateAIDrawerStatusBadge() {
+  const s = getAISettings();
+  const badge = document.getElementById('aiDrawerStatusBadge');
+  if (badge) {
+    const provName = s.provider === 'local' ? 'Local LLM' : s.provider.toUpperCase();
+    badge.textContent = `🟢 ${provName} (${s.model || 'default'})`;
+  }
+}
+
+function toggleAIDrawer(forceState = null) {
+  const overlay = document.getElementById('aiModalOverlay');
+  if (!overlay) return;
+  if (typeof forceState === 'boolean') {
+    if (forceState) overlay.classList.add('active');
+    else overlay.classList.remove('active');
+  } else {
+    overlay.classList.toggle('active');
+  }
+}
+
+function openAISettingsModal() {
+  const s = getAISettings();
+  document.getElementById('aiProviderSelect').value = s.provider;
+  document.getElementById('aiBaseUrlInput').value = s.baseUrl || 'http://localhost:11434/v1';
+  document.getElementById('aiApiKeyInput').value = s.apiKey || '';
+  document.getElementById('aiModelInput').value = s.model || 'llama3.2';
+  document.getElementById('aiSystemPromptInput').value = s.systemPrompt || '';
+  
+  toggleAIProviderFields(s.provider);
+  const banner = document.getElementById('aiTestResultBanner');
+  if (banner) banner.style.display = 'none';
+  document.getElementById('aiSettingsModal').classList.add('active');
+}
+
+function closeAISettingsModal() {
+  document.getElementById('aiSettingsModal').classList.remove('active');
+}
+
+function openAIGuideModal() {
+  const modal = document.getElementById('aiGuideModal');
+  if (modal) modal.classList.add('active');
+}
+
+function closeAIGuideModal() {
+  const modal = document.getElementById('aiGuideModal');
+  if (modal) modal.classList.remove('active');
+}
+
+function toggleAIProviderFields(provider) {
+  const keyGrp = document.getElementById('aiApiKeyGroup');
+  const urlGrp = document.getElementById('aiBaseUrlGroup');
+  if (provider === 'local') {
+    keyGrp.style.display = 'none';
+    urlGrp.style.display = 'flex';
+  } else {
+    keyGrp.style.display = 'flex';
+    urlGrp.style.display = provider === 'openai' ? 'flex' : 'none';
+  }
+}
+
+function buildAIFinancialContext() {
+  const d = getFilteredData();
+  const v = getComputedValues();
+  const activeMonth = state.selectedMonth;
+
+  const recentWants = (d.wants || []).slice(-5).map(w => `- [Wants] ${w.name}: ₹${w.amount} (${w.paymentSource || 'cash'})`).join('\n');
+  const recentNeeds = (d.needs || []).slice(-5).map(n => `- [Needs] ${n.name}: ₹${n.amount} (${n.paymentSource || 'cash'})`).join('\n');
+
+  return `
+You are an AI Personal Financial Advisor for கணக்கு Book.
+[FINANCIAL SNAPSHOT FOR ${activeMonth}]
+- Total Net Income: ₹ ${v.income.toFixed(2)}
+- Needs Spent: ₹ ${v.needsTotal.toFixed(2)} | Target Budget: ₹ ${v.needsBudget.toFixed(2)} | Leftover Balance: ₹ ${v.needsBalance.toFixed(2)}
+- Wants Spent: ₹ ${v.wantsTotal.toFixed(2)} | Target Budget: ₹ ${v.wantsBudget.toFixed(2)} | Leftover Balance: ₹ ${v.wantsBalance.toFixed(2)}
+- Savings Spent: ₹ ${v.savingsTotal.toFixed(2)} | Target Budget: ₹ ${v.savingsBudget.toFixed(2)} | Leftover Balance: ₹ ${v.savingsBalance.toFixed(2)}
+- Net Remaining Income: ₹ ${v.netRemainingIncome.toFixed(2)}
+- Total Bank Balances: ₹ ${v.banksTotal.toFixed(2)}
+
+Recent Wants Expenses:
+${recentWants || 'None logged yet'}
+
+Recent Needs Expenses:
+${recentNeeds || 'None logged yet'}
+
+[INSTRUCTIONS]
+If the user explicitly asks to add, create, or delete an expense item, reply with a valid JSON block inside triple backticks (\`\`\`json ... \`\`\`):
+For ADDING an expense:
+\`\`\`json
+{
+  "action": "ADD_EXPENSE",
+  "category": "wants" | "needs",
+  "name": "Expense Name",
+  "amount": 900,
+  "date": "YYYY-MM-DD",
+  "comment": "",
+  "paymentSource": "cash"
+}
+\`\`\`
+If item name is missing, ask the user for the expense name instead of JSON.
+
+For DELETING an expense:
+\`\`\`json
+{
+  "action": "DELETE_ITEM",
+  "category": "wants" | "needs",
+  "searchKeyword": "keyword to match"
+}
+\`\`\`
+Otherwise, reply naturally in clear, concise text.
+`;
+}
+
+async function testAIConnection() {
+  const banner = document.getElementById('aiTestResultBanner');
+  banner.style.display = 'flex';
+  banner.className = 'auth-error-banner';
+  banner.innerHTML = `<span>⏳ Testing connection to provider...</span>`;
+
+  const s = {
+    provider: document.getElementById('aiProviderSelect').value,
+    baseUrl: document.getElementById('aiBaseUrlInput').value.trim(),
+    apiKey: document.getElementById('aiApiKeyInput').value.trim(),
+    model: document.getElementById('aiModelInput').value.trim() || 'llama3.2'
+  };
+
+  try {
+    const startTime = Date.now();
+    await callLLMProvider([{ role: 'user', content: 'Ping test. Reply OK.' }], s);
+    const latency = Date.now() - startTime;
+
+    banner.className = 'auth-error-banner text-success';
+    banner.style.borderColor = 'rgba(74, 222, 128, 0.4)';
+    banner.style.background = 'rgba(74, 222, 128, 0.12)';
+    banner.innerHTML = `<span>🟢 Connection Successful! Latency: ${latency}ms</span>`;
+  } catch (err) {
+    banner.className = 'auth-error-banner';
+    banner.style.borderColor = 'rgba(240, 112, 112, 0.4)';
+    banner.style.background = 'rgba(240, 112, 112, 0.12)';
+    banner.innerHTML = `<span>🔴 Connection Failed: ${escapeHtml(err.message || 'Check URL, CORS settings, or API Key.')}</span>`;
+  }
+}
+
+async function callLLMProvider(messages, settingsOverride = null) {
+  const s = settingsOverride || getAISettings();
+  const provider = s.provider;
+  const baseUrl = s.baseUrl || 'http://localhost:11434/v1';
+  const model = s.model || 'llama3.2';
+
+  if (provider === 'local' || provider === 'openai') {
+    const url = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
+    const headers = { 'Content-Type': 'application/json' };
+    if (s.apiKey) headers['Authorization'] = `Bearer ${s.apiKey}`;
+
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model,
+        messages,
+        temperature: 0.3,
+        stream: false
+      })
+    });
+
+    if (!resp.ok) {
+      const errTxt = await resp.text();
+      throw new Error(`Server returned HTTP ${resp.status}: ${errTxt.slice(0, 150)}`);
+    }
+
+    const data = await resp.json();
+    return data.choices[0]?.message?.content || 'No response from model.';
+  } else if (provider === 'gemini') {
+    if (!s.apiKey) throw new Error('API Key is required for Gemini');
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model || 'gemini-1.5-flash'}:generateContent?key=${s.apiKey}`;
+    
+    const contents = messages.map(m => ({
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: m.content }]
+    }));
+
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents })
+    });
+
+    if (!resp.ok) {
+      const errTxt = await resp.text();
+      throw new Error(`Gemini Error HTTP ${resp.status}: ${errTxt.slice(0, 150)}`);
+    }
+
+    const data = await resp.json();
+    return data.candidates?.[0]?.content?.parts?.[0]?.text || 'No response from Gemini.';
+  } else if (provider === 'claude') {
+    if (!s.apiKey) throw new Error('API Key is required for Claude');
+    const url = 'https://api.anthropic.com/v1/messages';
+    
+    const systemMsg = messages.find(m => m.role === 'system')?.content || '';
+    const userMsgs = messages.filter(m => m.role !== 'system').map(m => ({
+      role: m.role,
+      content: m.content
+    }));
+
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': s.apiKey,
+        'anthropic-version': '2023-06-01',
+        'dangerously-allow-browser': 'true'
+      },
+      body: JSON.stringify({
+        model: model || 'claude-3-haiku-20240307',
+        max_tokens: 1000,
+        system: systemMsg,
+        messages: userMsgs
+      })
+    });
+
+    if (!resp.ok) {
+      const errTxt = await resp.text();
+      throw new Error(`Claude Error HTTP ${resp.status}: ${errTxt.slice(0, 150)}`);
+    }
+
+    const data = await resp.json();
+    return data.content?.[0]?.text || 'No response from Claude.';
+  } else {
+    throw new Error(`Unsupported provider: ${provider}`);
+  }
+}
+
+let aiChatHistory = [];
+
+async function handleAIChatSubmit() {
+  const inputEl = document.getElementById('aiChatInput');
+  const userText = inputEl.value.trim();
+  if (!userText) return;
+
+  inputEl.value = '';
+  appendChatMessage('user', userText);
+
+  const msgContainer = document.getElementById('aiChatMessages');
+  const loadingId = 'ai_loading_' + Date.now();
+  const loadingBubble = document.createElement('div');
+  loadingBubble.id = loadingId;
+  loadingBubble.className = 'ai-msg assistant';
+  loadingBubble.innerHTML = `<div class="ai-msg-bubble"><span>💬 Thinking...</span></div>`;
+  msgContainer.appendChild(loadingBubble);
+  msgContainer.scrollTop = msgContainer.scrollHeight;
+
+  try {
+    const contextPrompt = buildAIFinancialContext();
+    const systemMsg = { role: 'system', content: contextPrompt };
+    
+    aiChatHistory.push({ role: 'user', content: userText });
+    if (aiChatHistory.length > 10) aiChatHistory = aiChatHistory.slice(-10);
+
+    const messagesPayload = [systemMsg, ...aiChatHistory];
+    const aiResponseText = await callLLMProvider(messagesPayload);
+
+    document.getElementById(loadingId)?.remove();
+
+    aiChatHistory.push({ role: 'assistant', content: aiResponseText });
+
+    const jsonMatch = aiResponseText.match(/```json\s*([\s\S]*?)\s*```/);
+    if (jsonMatch) {
+      try {
+        const actionData = JSON.parse(jsonMatch[1]);
+        processAIActionPayload(actionData, aiResponseText);
+        return;
+      } catch (e) {
+        console.warn('JSON action parse failed:', e);
+      }
+    }
+
+    appendChatMessage('assistant', aiResponseText);
+  } catch (err) {
+    document.getElementById(loadingId)?.remove();
+    appendChatMessage('assistant', `⚠️ **Connection Error**: ${escapeHtml(err.message || 'Failed to reach LLM provider.')}`);
+  }
+}
+
+function appendChatMessage(role, text) {
+  const container = document.getElementById('aiChatMessages');
+  const msgEl = document.createElement('div');
+  msgEl.className = `ai-msg ${role}`;
+  
+  const formattedText = escapeHtml(text)
+    .replace(/\n/g, '<br>')
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.*?)\*/g, '<em>$1</em>');
+
+  msgEl.innerHTML = `<div class="ai-msg-bubble">${formattedText}</div>`;
+  container.appendChild(msgEl);
+  container.scrollTop = container.scrollHeight;
+}
+
+function processAIActionPayload(actionData, fullText) {
+  const container = document.getElementById('aiChatMessages');
+  const d = getCurrentData();
+
+  if (actionData.action === 'ADD_EXPENSE') {
+    const cat = actionData.category === 'needs' ? 'needs' : 'wants';
+    const name = actionData.name || 'Expense';
+    const amount = Number(actionData.amount) || 0;
+    const date = actionData.date || getTodayDate();
+    const comment = actionData.comment || 'Added via AI Assistant';
+    const paymentSource = actionData.paymentSource || 'cash';
+
+    if (isNaN(amount) || amount <= 0) {
+      appendChatMessage('assistant', 'Please provide a valid amount for the expense.');
+      return;
+    }
+
+    d[cat].push({ date, createdAt: new Date().toISOString(), name, comment, amount, paymentSource });
+    processPaymentSourceEffect(paymentSource, amount, name, date);
+
+    saveToStorage();
+    renderAll();
+
+    const msgEl = document.createElement('div');
+    msgEl.className = 'ai-msg assistant';
+    msgEl.innerHTML = `
+      <div class="ai-msg-bubble">
+        ✅ <strong>Expense Added Successfully!</strong><br>
+        Added <strong>${escapeHtml(name)}</strong> (₹${fmt(amount)}) to <strong>${cat.toUpperCase()}</strong>.
+      </div>
+    `;
+    container.appendChild(msgEl);
+    showToast(`${name} added via AI`, 'success');
+  } else if (actionData.action === 'DELETE_ITEM') {
+    const cat = actionData.category === 'needs' ? 'needs' : 'wants';
+    const keyword = (actionData.searchKeyword || '').toLowerCase();
+
+    const targetIdx = (d[cat] || []).findIndex(i => i.name.toLowerCase().includes(keyword));
+
+    if (targetIdx === -1) {
+      appendChatMessage('assistant', `Could not find any item matching "${escapeHtml(actionData.searchKeyword)}" in ${cat.toUpperCase()}.`);
+      return;
+    }
+
+    const item = d[cat][targetIdx];
+
+    const msgEl = document.createElement('div');
+    msgEl.className = 'ai-msg assistant';
+    msgEl.innerHTML = `
+      <div class="ai-msg-bubble">
+        <div class="ai-action-card warning">
+          <div class="action-title">⚠️ Confirm Deletion</div>
+          <div style="font-size:0.8rem;color:var(--text-2);">
+            Are you sure you want to delete <strong>"${escapeHtml(item.name)}"</strong> (₹${fmt(item.amount)}) from ${cat.toUpperCase()}?
+          </div>
+          <div class="action-btns">
+            <button class="btn btn-primary" style="background:var(--red-soft);border-color:rgba(240,112,112,0.3);color:var(--red);padding:4px 10px;font-size:0.75rem;" onclick="confirmAIDelete('${cat}', ${targetIdx}, this)">Confirm Delete</button>
+            <button class="btn btn-secondary" style="padding:4px 10px;font-size:0.75rem;" onclick="this.closest('.ai-msg').remove()">Cancel</button>
+          </div>
+        </div>
+      </div>
+    `;
+    container.appendChild(msgEl);
+  } else {
+    appendChatMessage('assistant', fullText);
+  }
+
+  container.scrollTop = container.scrollHeight;
+}
+
+window.confirmAIDelete = function(cat, idx, btnEl) {
+  const d = getCurrentData();
+  if (!d[cat] || !d[cat][idx]) return;
+  const item = d[cat][idx];
+  d[cat].splice(idx, 1);
+  saveToStorage();
+  renderAll();
+
+  const bubble = btnEl.closest('.ai-msg-bubble');
+  bubble.innerHTML = `🗑️ Deleted <strong>"${escapeHtml(item.name)}"</strong> from ${cat.toUpperCase()}.`;
+  showToast('Item deleted via AI', 'info');
+};
+
+// ─── Statement Importer & Categorization Wizard Engine ─────────
+let pendingStatementFile = null;
+let wizardData = {
+  currentStep: 1,
+  rawItems: [],
+  needs: [],
+  wants: [],
+  income: []
+};
+
+function openStatementUploadModal() {
+  pendingStatementFile = null;
+  const badge = document.getElementById('stmtSelectedFileBadge');
+  const content = document.getElementById('stmtDropzoneContent');
+  const input = document.getElementById('statementFileInput');
+  const btn = document.getElementById('confirmStmtExtractBtn');
+  const loader = document.getElementById('stmtLoadingBanner');
+  const errBanner = document.getElementById('stmtErrorBanner');
+
+  if (badge) badge.style.display = 'none';
+  if (content) content.style.display = 'block';
+  if (input) input.value = '';
+  if (btn) btn.disabled = true;
+  if (loader) loader.style.display = 'none';
+  if (errBanner) errBanner.style.display = 'none';
+
+  const modal = document.getElementById('statementUploadModal');
+  if (modal) modal.classList.add('active');
+}
+
+function closeStatementUploadModal() {
+  const modal = document.getElementById('statementUploadModal');
+  if (modal) modal.classList.remove('active');
+  pendingStatementFile = null;
+}
+
+function handleStatementFileSelect(file) {
+  if (!file) return;
+  pendingStatementFile = file;
+  const content = document.getElementById('stmtDropzoneContent');
+  const badge = document.getElementById('stmtSelectedFileBadge');
+  const nameEl = document.getElementById('stmtSelectedFileName');
+  const sizeEl = document.getElementById('stmtSelectedFileSize');
+  const btn = document.getElementById('confirmStmtExtractBtn');
+
+  if (content) content.style.display = 'none';
+  if (badge) badge.style.display = 'flex';
+  if (nameEl) nameEl.textContent = file.name;
+  if (sizeEl) sizeEl.textContent = `${(file.size / 1024).toFixed(1)} KB`;
+  if (btn) btn.disabled = false;
+}
+
+async function extractStatementTransactions() {
+  if (!pendingStatementFile) return;
+
+  const btn = document.getElementById('confirmStmtExtractBtn');
+  const loader = document.getElementById('stmtLoadingBanner');
+  const errBanner = document.getElementById('stmtErrorBanner');
+
+  if (btn) btn.disabled = true;
+  if (loader) loader.style.display = 'flex';
+  if (errBanner) errBanner.style.display = 'none';
+
+  try {
+    const textContent = await readStatementFileContent(pendingStatementFile);
+    
+    const prompt = `
+You are an expert AI financial statement parser.
+Analyze the following bank/credit statement text and extract all transaction records.
+
+Extract the transactions as a JSON array where each object has:
+- "date": "YYYY-MM-DD"
+- "description": "Clean Transaction / Merchant Name"
+- "amount": positive number
+- "type": "debit" | "credit"
+
+STRICT REQUIREMENT: Respond ONLY with a valid JSON array enclosed in \`\`\`json ... \`\`\` code block.
+
+Statement Text Snippet:
+${textContent.slice(0, 12000)}
+`;
+
+    let extracted = [];
+    try {
+      const responseText = await callLLMProvider([{ role: 'user', content: prompt }]);
+      const jsonMatch = responseText.match(/```json\s*([\s\S]*?)\s*```/) || responseText.match(/\[\s*\{[\s\S]*\}\s*\]/);
+      if (jsonMatch) {
+        const rawJson = jsonMatch[1] || jsonMatch[0];
+        extracted = JSON.parse(rawJson);
+      }
+    } catch (e) {
+      console.warn('LLM extraction failed, using fallback parser:', e);
+    }
+
+    if (!Array.isArray(extracted) || extracted.length === 0) {
+      extracted = fallbackParseStatementText(textContent);
+    }
+
+    if (!Array.isArray(extracted) || extracted.length === 0) {
+      throw new Error('No transactions could be extracted from this file. Please ensure it is a valid bank statement.');
+    }
+
+    const formatted = extracted.map((item, idx) => ({
+      id: 'st_tr_' + Date.now() + '_' + idx,
+      date: item.date || getTodayDate(),
+      description: item.description || item.name || 'Statement Item',
+      amount: Number(item.amount) || 0,
+      type: (item.type || 'debit').toLowerCase(),
+      category: 'unassigned',
+      comment: ''
+    })).filter(item => item.amount > 0);
+
+    closeStatementUploadModal();
+    openWizard(formatted);
+  } catch (err) {
+    if (loader) loader.style.display = 'none';
+    if (btn) btn.disabled = false;
+    if (errBanner) {
+      errBanner.style.display = 'flex';
+      errBanner.innerHTML = `<span>⚠️ ${escapeHtml(err.message || 'Error processing statement file.')}</span>`;
+    }
+  }
+}
+
+async function readStatementFileContent(file) {
+  const ext = (file.name || '').split('.').pop().toLowerCase();
+  
+  if (ext === 'pdf') {
+    try {
+      if (window.pdfjsLib) {
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        const arrayBuffer = await file.arrayBuffer();
+        const loadingTask = window.pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) });
+        const pdf = await loadingTask.promise;
+        let fullText = '';
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const content = await page.getTextContent();
+          const pageText = content.items.map(item => item.str).join(' ');
+          fullText += pageText + '\n';
+        }
+        if (fullText.trim().length > 10) {
+          return fullText;
+        }
+      }
+    } catch (err) {
+      console.warn('PDF.js text extraction failed:', err);
+    }
+  }
+
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => resolve(e.target.result || '');
+    reader.onerror = (e) => reject(e);
+    reader.readAsText(file);
+  });
+}
+
+function fallbackParseStatementText(text) {
+  // Strip raw PDF binary metadata if present
+  if (text.includes('%PDF') || text.includes('endobj') || text.includes('ColorSpace')) {
+    text = text.replace(/%PDF[\s\S]*?stream/gi, '')
+               .replace(/<<[\s\S]*?>>/g, '')
+               .replace(/endobj|xref|trailer|startxref|ColorSpace|Subtype|Catalog/gi, '');
+  }
+
+  const lines = text.split('\n');
+  const items = [];
+  const today = getTodayDate();
+
+  lines.forEach((line, idx) => {
+    const clean = line.replace(/[\x00-\x1F\x7F-\x9F]/g, '').trim();
+    if (!clean || clean.length < 4) return;
+    if (/^%PDF|obj$|<<|>>|endobj|ColorSpace|Subtype|Font|Catalog|stream/i.test(clean)) return;
+
+    // Extract Date (DD.MM.YYYY, DD/MM/YYYY, or DD-MM-YYYY)
+    const dateMatch = clean.match(/(\d{2})[.\/-](\d{2})[.\/-](\d{4})/);
+    let itemDate = today;
+    if (dateMatch) {
+      const day = dateMatch[1];
+      const month = dateMatch[2];
+      const year = dateMatch[3];
+      itemDate = `${year}-${month}-${day}`;
+    }
+
+    const numMatch = clean.match(/(?:₹|\$|INR)?\s*([0-9,]+\.[0-9]{2}|[1-9][0-9,]{2,})/i);
+    if (numMatch) {
+      const amtStr = numMatch[1].replace(/,/g, '');
+      const amt = Number(amtStr);
+      if (amt > 0 && amt < 1000000) {
+        let desc = clean.replace(numMatch[0], '');
+        if (dateMatch) desc = desc.replace(dateMatch[0], '');
+        desc = desc.replace(/[0-9\/-]+/g, ' ').replace(/\s+/g, ' ').trim();
+        desc = desc.replace(/^[^a-zA-Z0-9]+|[^a-zA-Z0-9]+$/g, '');
+        if (desc.length > 2 && !/PDF|obj|stream|Catalog|ColorSpace/i.test(desc)) {
+          const isCredit = /credit|salary|refund|deposit|cr\b/i.test(clean);
+          items.push({
+            date: itemDate,
+            description: desc,
+            amount: amt,
+            type: isCredit ? 'credit' : 'debit'
+          });
+        }
+      }
+    }
+  });
+
+  return items.slice(0, 50);
+}
+
+// ─── Wizard Multi-Step Categorization Engine ─────────────
+function openWizard(items) {
+  // Initially keep all extracted transactions untagged (category = 'unassigned')
+  const unassignedItems = items.map(item => ({
+    ...item,
+    category: 'unassigned'
+  }));
+
+  wizardData = {
+    currentStep: 1,
+    rawItems: unassignedItems,
+    needs: [],
+    wants: [],
+    income: []
+  };
+
+  const modal = document.getElementById('statementWizardModal');
+  if (modal) modal.classList.add('active');
+
+  setWizardStep(1);
+}
+
+function closeWizardModal() {
+  const modal = document.getElementById('statementWizardModal');
+  if (modal) modal.classList.remove('active');
+}
+
+function wizardSmartCategorize() {
+  let count = 0;
+  wizardData.rawItems.forEach(item => {
+    if (item.category !== 'unassigned') return;
+    const desc = item.description.toLowerCase();
+    let cat = 'wants'; // Default for debit spends
+
+    if (item.type === 'credit' || desc.includes('salary') || desc.includes('interest') || desc.includes('refund') || desc.includes('deposit') || desc.includes('cr')) {
+      cat = 'income';
+    } else if (desc.includes('rent') || desc.includes('fuel') || desc.includes('grocery') || desc.includes('pharmacy') || desc.includes('milk') || desc.includes('electric') || desc.includes('bill') || desc.includes('recharge') || desc.includes('auto')) {
+      cat = 'needs';
+    }
+
+    item.category = cat;
+    wizardData[cat].push(item);
+    count++;
+  });
+
+  renderWizardStep1();
+  if (count > 0) showToast(`Smart Categorized ${count} transactions!`, 'success');
+  else showToast('All transactions are already categorized.', 'info');
+}
+
+function setWizardStep(step) {
+  wizardData.currentStep = step;
+
+  document.querySelectorAll('.wizard-step-item').forEach(el => {
+    const s = Number(el.getAttribute('data-step'));
+    el.classList.remove('active', 'completed');
+    if (s === step) el.classList.add('active');
+    else if (s < step) el.classList.add('completed');
+  });
+
+  document.querySelectorAll('.wizard-panel').forEach(panel => panel.classList.remove('active'));
+  const targetPanel = document.getElementById(`wizardStep${step}`);
+  if (targetPanel) targetPanel.classList.add('active');
+
+  if (step === 1) renderWizardStep1();
+  else if (step === 2) renderWizardStep2();
+  else if (step === 3) renderWizardStep3();
+  else if (step === 4) renderWizardStep4();
+  else if (step === 5) renderWizardStep5();
+
+  const prevBtn = document.getElementById('wizardPrevBtn');
+  const nextBtn = document.getElementById('wizardNextBtn');
+  const submitBtn = document.getElementById('wizardSubmitBtn');
+
+  if (prevBtn) prevBtn.disabled = step === 1;
+
+  if (step < 5) {
+    if (nextBtn) {
+      nextBtn.style.display = 'inline-flex';
+      const labels = { 1: 'Next: Review Needs →', 2: 'Next: Review Wants →', 3: 'Next: Review Income →', 4: 'Next: Final Confirm →' };
+      nextBtn.textContent = labels[step] || 'Next →';
+    }
+    if (submitBtn) submitBtn.style.display = 'none';
+  } else {
+    if (nextBtn) nextBtn.style.display = 'none';
+    if (submitBtn) submitBtn.style.display = 'inline-flex';
+  }
+}
+
+function navigateWizardStep(delta) {
+  const newStep = Math.min(5, Math.max(1, wizardData.currentStep + delta));
+  setWizardStep(newStep);
+}
+
+function renderWizardStep1() {
+  const listEl = document.getElementById('extractedTransList');
+  const badge = document.getElementById('extractedCountBadge');
+  
+  const unassignedItems = wizardData.rawItems.filter(i => i.category === 'unassigned');
+
+  if (badge) badge.textContent = `${unassignedItems.length} Left`;
+
+  if (listEl) {
+    if (unassignedItems.length === 0) {
+      listEl.innerHTML = `
+        <div class="empty-unassigned-card">
+          🎉 <strong>All transactions categorized!</strong>
+          <br>
+          <span style="font-size:0.82rem;color:var(--text-3);margin-top:6px;display:inline-block;">
+            Click <strong>"Next: Review Needs →"</strong> below to verify & add comments.
+          </span>
+        </div>
+      `;
+    } else {
+      listEl.innerHTML = unassignedItems.map(item => `
+        <div class="trans-card" id="card_${item.id}" draggable="true">
+          <div class="trans-card-header">
+            <span class="trans-card-desc">${escapeHtml(item.description)}</span>
+            <span class="trans-card-amt ${item.type}">₹${fmt(item.amount)}</span>
+          </div>
+          <div class="trans-card-sub">
+            <span>📅 ${item.date}</span>
+            <span style="text-transform:uppercase;font-weight:700;color:var(--text-3);">UNASSIGNED</span>
+          </div>
+          <div class="trans-assign-btns">
+            <button type="button" class="btn-assign" onclick="assignTransCategory('${item.id}', 'needs')">📋 Needs</button>
+            <button type="button" class="btn-assign" onclick="assignTransCategory('${item.id}', 'wants')">🛍️ Wants</button>
+            <button type="button" class="btn-assign" onclick="assignTransCategory('${item.id}', 'income')">💵 Income</button>
+          </div>
+        </div>
+      `).join('');
+
+      // Attach Drag Events to cards
+      unassignedItems.forEach(item => {
+        const cardEl = document.getElementById(`card_${item.id}`);
+        if (cardEl) {
+          cardEl.addEventListener('dragstart', (e) => {
+            e.dataTransfer.setData('text/plain', item.id);
+            cardEl.classList.add('dragging');
+          });
+          cardEl.addEventListener('dragend', () => {
+            cardEl.classList.remove('dragging');
+          });
+        }
+      });
+    }
+  }
+
+  updateBucketCounts();
+}
+
+function updateBucketCounts() {
+  document.getElementById('bucketNeedsCount').textContent = wizardData.needs.length;
+  document.getElementById('bucketWantsCount').textContent = wizardData.wants.length;
+  document.getElementById('bucketIncomeCount').textContent = wizardData.income.length;
+
+  ['needs', 'wants', 'income'].forEach(cat => {
+    const container = document.getElementById(`bucket${cat.charAt(0).toUpperCase() + cat.slice(1)}Items`);
+    if (container) {
+      container.innerHTML = wizardData[cat].map(item => `
+        <span class="bucket-chip">
+          ${escapeHtml(item.description)} (₹${fmt(item.amount)})
+          <span class="bucket-chip-remove" onclick="removeTransFromCat('${item.id}', '${cat}')">✕</span>
+        </span>
+      `).join('');
+    }
+  });
+}
+
+window.assignTransCategory = function(transId, category) {
+  const item = wizardData.rawItems.find(i => i.id === transId);
+  if (!item) return;
+
+  wizardData.needs = wizardData.needs.filter(i => i.id !== transId);
+  wizardData.wants = wizardData.wants.filter(i => i.id !== transId);
+  wizardData.income = wizardData.income.filter(i => i.id !== transId);
+
+  item.category = category;
+  wizardData[category].push(item);
+
+  renderWizardStep1();
+};
+
+window.removeTransFromCat = function(transId, category) {
+  wizardData[category] = wizardData[category].filter(i => i.id !== transId);
+  const item = wizardData.rawItems.find(i => i.id === transId);
+  if (item) item.category = 'unassigned';
+  renderWizardStep1();
+};
+
+function renderWizardStep2() {
+  const tbody = document.getElementById('wizardNeedsTableBody');
+  if (!tbody) return;
+  if (wizardData.needs.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--text-3);padding:20px;">No Needs expenses categorized yet.</td></tr>`;
+  } else {
+    tbody.innerHTML = wizardData.needs.map((item, idx) => `
+      <tr>
+        <td><input type="date" value="${item.date}" onchange="wizardData.needs[${idx}].date=this.value"></td>
+        <td><input type="text" value="${escapeHtml(item.description)}" onchange="wizardData.needs[${idx}].description=this.value"></td>
+        <td><input type="number" value="${item.amount}" style="width:90px;" onchange="wizardData.needs[${idx}].amount=Number(this.value)"></td>
+        <td><span class="text-muted">cash</span></td>
+        <td><input type="text" placeholder="Add comment..." value="${escapeHtml(item.comment || '')}" onchange="wizardData.needs[${idx}].comment=this.value"></td>
+        <td><button class="btn-icon delete" onclick="removeWizardItem('needs', ${idx})">🗑️</button></td>
+      </tr>
+    `).join('');
+  }
+}
+
+function renderWizardStep3() {
+  const tbody = document.getElementById('wizardWantsTableBody');
+  if (!tbody) return;
+  if (wizardData.wants.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--text-3);padding:20px;">No Wants expenses categorized yet.</td></tr>`;
+  } else {
+    tbody.innerHTML = wizardData.wants.map((item, idx) => `
+      <tr>
+        <td><input type="date" value="${item.date}" onchange="wizardData.wants[${idx}].date=this.value"></td>
+        <td><input type="text" value="${escapeHtml(item.description)}" onchange="wizardData.wants[${idx}].description=this.value"></td>
+        <td><input type="number" value="${item.amount}" style="width:90px;" onchange="wizardData.wants[${idx}].amount=Number(this.value)"></td>
+        <td><span class="text-muted">cash</span></td>
+        <td><input type="text" placeholder="Add comment..." value="${escapeHtml(item.comment || '')}" onchange="wizardData.wants[${idx}].comment=this.value"></td>
+        <td><button class="btn-icon delete" onclick="removeWizardItem('wants', ${idx})">🗑️</button></td>
+      </tr>
+    `).join('');
+  }
+}
+
+function renderWizardStep4() {
+  const tbody = document.getElementById('wizardIncomeTableBody');
+  if (!tbody) return;
+  if (wizardData.income.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--text-3);padding:20px;">No Income entries categorized yet.</td></tr>`;
+  } else {
+    tbody.innerHTML = wizardData.income.map((item, idx) => `
+      <tr>
+        <td><input type="date" value="${item.date}" onchange="wizardData.income[${idx}].date=this.value"></td>
+        <td><input type="text" value="${escapeHtml(item.description)}" onchange="wizardData.income[${idx}].description=this.value"></td>
+        <td><input type="number" value="${item.amount}" style="width:90px;" onchange="wizardData.income[${idx}].amount=Number(this.value)"></td>
+        <td><input type="text" placeholder="Add comment..." value="${escapeHtml(item.comment || '')}" onchange="wizardData.income[${idx}].comment=this.value"></td>
+        <td><button class="btn-icon delete" onclick="removeWizardItem('income', ${idx})">🗑️</button></td>
+      </tr>
+    `).join('');
+  }
+}
+
+function renderWizardStep5() {
+  const monthEl = document.getElementById('wizardTargetMonth');
+  if (monthEl) monthEl.textContent = state.currentMonth || getCurrentMonthName();
+
+  const needsTot = wizardData.needs.reduce((sum, i) => sum + Number(i.amount || 0), 0);
+  const wantsTot = wizardData.wants.reduce((sum, i) => sum + Number(i.amount || 0), 0);
+  const incTot = wizardData.income.reduce((sum, i) => sum + Number(i.amount || 0), 0);
+
+  document.getElementById('summaryNeedsVal').textContent = `₹ ${fmt(needsTot)}`;
+  document.getElementById('summaryNeedsCount').textContent = `${wizardData.needs.length} entries`;
+
+  document.getElementById('summaryWantsVal').textContent = `₹ ${fmt(wantsTot)}`;
+  document.getElementById('summaryWantsCount').textContent = `${wizardData.wants.length} entries`;
+
+  document.getElementById('summaryIncomeVal').textContent = `₹ ${fmt(incTot)}`;
+  document.getElementById('summaryIncomeCount').textContent = `${wizardData.income.length} entries`;
+}
+
+window.removeWizardItem = function(cat, idx) {
+  if (wizardData[cat]) wizardData[cat].splice(idx, 1);
+  if (wizardData.currentStep === 2) renderWizardStep2();
+  else if (wizardData.currentStep === 3) renderWizardStep3();
+  else if (wizardData.currentStep === 4) renderWizardStep4();
+};
+
+function submitWizardImport() {
+  const d = getCurrentData();
+
+  if (!d.needs) d.needs = [];
+  if (!d.wants) d.wants = [];
+  if (!d.income) d.income = { total: 0, entries: [], needsPct: 50, savingsPct: 20, wantsPct: 10 };
+  if (!d.income.entries) d.income.entries = [];
+
+  // Add-on / append Statement Wizard entries to existing data
+  wizardData.needs.forEach(item => {
+    d.needs.push({
+      id: 'need_' + Date.now() + Math.random().toString(36).substr(2, 4),
+      date: item.date || getTodayDate(),
+      name: item.description || 'Needs Item',
+      amount: Number(item.amount) || 0,
+      comment: item.comment || 'Imported via Statement Wizard',
+      paymentSource: 'cash'
+    });
+  });
+
+  wizardData.wants.forEach(item => {
+    d.wants.push({
+      id: 'want_' + Date.now() + Math.random().toString(36).substr(2, 4),
+      date: item.date || getTodayDate(),
+      name: item.description || 'Wants Item',
+      amount: Number(item.amount) || 0,
+      comment: item.comment || 'Imported via Statement Wizard',
+      paymentSource: 'cash'
+    });
+  });
+
+  wizardData.income.forEach(item => {
+    d.income.entries.push({
+      id: 'inc_' + Date.now() + Math.random().toString(36).substr(2, 4),
+      date: item.date || getTodayDate(),
+      source: item.description || 'Income Entry',
+      amount: Number(item.amount) || 0,
+      comment: item.comment || 'Imported via Statement Wizard'
+    });
+  });
+
+  if (d.income && Array.isArray(d.income.entries)) {
+    d.income.total = d.income.entries.reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+  }
+
+  saveToStorage(true);
+  renderAll();
+  closeWizardModal();
+  showToast('Statement entries added to active month!', 'success');
 }
 
 document.addEventListener('DOMContentLoaded', init);

@@ -10,6 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -182,10 +183,27 @@
         </a>
       </nav>
 
-      <div class="sidebar-footer">
-        <button class="btn-export" id="exportBtn">📤 Export CSV</button>
-        <button class="btn-import" id="importBtn">📥 Import CSV</button>
-        <input type="file" id="importFileInput" class="hidden-input" accept=".csv">
+      <div class="sidebar-footer" style="display: flex; flex-direction: column; gap: 8px; position: relative;">
+        <!-- Export As Dropdown -->
+        <div class="export-dropdown-container">
+          <button class="btn-export-as" id="exportAsBtn" type="button">
+            <span>📤 Export As</span>
+            <span class="dropdown-arrow">▾</span>
+          </button>
+          <div class="export-dropdown-menu" id="exportDropdownMenu">
+            <button class="dropdown-item" id="exportCsvOption" type="button">
+              <span class="item-icon">📄</span> Export as CSV
+            </button>
+            <button class="dropdown-item" id="exportJsonOption" type="button">
+              <span class="item-icon">💾</span> Export as JSON
+            </button>
+          </div>
+        </div>
+
+        <!-- Import Button -->
+        <button class="btn-import-modal" id="openImportModalBtn" type="button">
+          📥 Import
+        </button>
       </div>
     </aside>
 
@@ -438,6 +456,10 @@
             </select>
           </div>
           <div class="form-group">
+            <label for="wantsCommentInput">Comments</label>
+            <input type="text" id="wantsCommentInput" placeholder="Optional notes">
+          </div>
+          <div class="form-group">
             <label for="wantsAmountInput">Amount (₹)</label>
             <input type="number" id="wantsAmountInput" placeholder="0.00" min="0" step="0.01">
           </div>
@@ -452,6 +474,7 @@
                 <th>Date</th>
                 <th>Expense</th>
                 <th>Paid Via</th>
+                <th>Comments</th>
                 <th>Amount</th>
                 <th>Actions</th>
               </tr>
@@ -495,6 +518,10 @@
             </select>
           </div>
           <div class="form-group">
+            <label for="needsCommentInput">Comments</label>
+            <input type="text" id="needsCommentInput" placeholder="Optional notes">
+          </div>
+          <div class="form-group">
             <label for="needsAmountInput">Amount (₹)</label>
             <input type="number" id="needsAmountInput" placeholder="0.00" min="0" step="0.01">
           </div>
@@ -509,6 +536,7 @@
                 <th>Date</th>
                 <th>Expense</th>
                 <th>Paid Via</th>
+                <th>Comments</th>
                 <th>Amount</th>
                 <th>Actions</th>
               </tr>
@@ -790,7 +818,7 @@
 
   <!-- Edit Modal -->
   <div class="modal-overlay" id="editModal">
-    <div class="modal">
+    <div class="modal modal-lg">
       <div class="modal-header">
         <h2 id="editModalTitle">Edit Item</h2>
         <button class="modal-close" id="editModalClose">✕</button>
@@ -825,7 +853,7 @@
 
   <!-- Day Details Modal -->
   <div class="modal-overlay" id="dayModal">
-    <div class="modal">
+    <div class="modal modal-lg">
       <div class="modal-header">
         <h2 id="dayModalTitle">Expenses for Day</h2>
         <button class="modal-close" id="dayModalClose">✕</button>
@@ -910,6 +938,513 @@
       </div>
     </div>
   </div>
+
+  <!-- AI Settings Modal -->
+  <div class="modal-overlay" id="aiSettingsModal">
+    <div class="modal modal-lg">
+      <div class="modal-header" style="justify-content: space-between; align-items: center;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <h2>🤖 AI Assistant & Connection Settings</h2>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <button type="button" class="btn-header-action" id="openAIGuideBtn" style="color: var(--accent); border-color: var(--accent-border); font-size: 0.78rem;">
+            <span>📖</span> Guide to setup Local LLM & Cloud AI
+          </button>
+          <button class="modal-close" id="aiSettingsModalClose">✕</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div class="form-group mb-3">
+          <label for="aiProviderSelect">AI Provider Engine</label>
+          <select id="aiProviderSelect">
+            <option value="local">🖥️ Local LLM (Ollama / LM Studio / Jan.ai)</option>
+            <option value="gemini">✨ Google Gemini API</option>
+            <option value="claude">🧠 Anthropic Claude API</option>
+            <option value="openai">⚡ OpenAI / Groq / DeepSeek</option>
+          </select>
+        </div>
+
+        <div class="form-group mb-3" id="aiBaseUrlGroup">
+          <label for="aiBaseUrlInput">Server Endpoint / Base URL</label>
+          <input type="text" id="aiBaseUrlInput" placeholder="http://localhost:11434/v1">
+          <small style="color:var(--text-3);font-size:0.7rem;margin-top:2px;">Default for Ollama: http://localhost:11434/v1 | LM Studio: http://localhost:1234/v1</small>
+        </div>
+
+        <div class="form-group mb-3" id="aiApiKeyGroup" style="display:none;">
+          <label for="aiApiKeyInput">API Key</label>
+          <input type="password" id="aiApiKeyInput" placeholder="Enter provider API Key">
+          <small style="color:var(--text-3);font-size:0.7rem;margin-top:2px;">Keys are stored strictly in your local browser storage.</small>
+        </div>
+
+        <div class="form-group mb-3">
+          <label for="aiModelInput">Model Name</label>
+          <input type="text" id="aiModelInput" placeholder="e.g. llama3.2, mistral, gemini-1.5-flash, gpt-4o-mini">
+        </div>
+
+        <div class="form-group mb-3">
+          <label for="aiSystemPromptInput">System Instructions / Context</label>
+          <input type="text" id="aiSystemPromptInput" placeholder="You are an expert personal financial advisor for கணக்கு Book...">
+        </div>
+
+        <div id="aiTestResultBanner" class="auth-error-banner" style="display:none;margin-top:10px;"></div>
+      </div>
+      <div class="modal-footer" style="justify-content: space-between;">
+        <button class="btn btn-secondary" id="aiTestConnectionBtn">🔍 Test Connection</button>
+        <div>
+          <button class="btn btn-secondary" id="aiSettingsModalCancel">Cancel</button>
+          <button class="btn btn-primary" id="aiSettingsModalSave">Save Settings</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI Setup Guide Modal Popup -->
+  <div class="modal-overlay" id="aiGuideModal">
+    <div class="modal modal-lg" style="max-width: 850px; max-height: 88vh; overflow-y: auto;">
+      <div class="modal-header">
+        <h2>📖 AI Setup Guide — Local LLM & Cloud AI</h2>
+        <button class="modal-close" id="aiGuideModalClose">&times;</button>
+      </div>
+      <div class="modal-body" style="display: flex; flex-direction: column; gap: 20px;">
+        
+        <!-- Section 1: Local LLM (Ollama & Llama 3.2) -->
+        <div style="background: var(--bg-surface); padding: 18px; border-radius: var(--r-md); border: 1px solid var(--accent-border);">
+          <div style="font-weight: 800; font-size: 1.05rem; color: var(--text-1); margin-bottom: 8px; display: flex; align-items: center; gap: 8px;">
+            <span>🦙 1. Free Local LLM Setup (Ollama & Llama 3.2)</span>
+            <span style="font-size: 0.72rem; padding: 2px 8px; border-radius: 99px; background: var(--green-soft); color: var(--green); border: 1px solid rgba(74,222,128,0.3);">100% Free & Private</span>
+          </div>
+          <p style="font-size: 0.85rem; color: var(--text-2); line-height: 1.5; margin-bottom: 12px;">
+            Run powerful AI models (Meta Llama 3.2, Mistral, Phi-3) completely free on your computer without sharing data over the internet.
+          </p>
+
+          <div style="display: flex; flex-direction: column; gap: 8px; font-size: 0.84rem; color: var(--text-1);">
+            <div><strong>Step 1:</strong> Download & Install Ollama from <a href="https://ollama.com/download" target="_blank" style="color: var(--accent); text-decoration: underline; font-weight: 700;">https://ollama.com/download 🔗</a></div>
+            <div><strong>Step 2:</strong> Open your terminal (Command Prompt / PowerShell / Mac Terminal) and run:
+              <pre style="background: var(--bg-surface-elevated); padding: 8px 12px; border-radius: 6px; margin-top: 4px; font-family: monospace; color: var(--accent);">ollama run llama3.2</pre>
+            </div>
+            <div><strong>Step 3:</strong> Configure Kanakku Book AI Connection Settings:
+              <ul style="margin: 4px 0 0 20px; list-style-type: disc; color: var(--text-2);">
+                <li><strong>AI Provider Engine:</strong> Select <code>Local LLM (Ollama / LM Studio)</code></li>
+                <li><strong>Server Base URL:</strong> <code>http://localhost:11434/v1</code></li>
+                <li><strong>Model Name:</strong> <code>llama3.2</code></li>
+                <li><strong>API Key:</strong> Leave empty</li>
+              </ul>
+            </div>
+            <div><strong>Step 4:</strong> Click <code>🔍 Test Connection</code> in Settings to confirm green latency indicator!</div>
+          </div>
+          
+          <div style="margin-top: 12px; padding: 10px; background: var(--bg-surface-elevated); border-radius: 6px; font-size: 0.78rem; color: var(--text-3);">
+            💡 <strong>Alternative (LM Studio):</strong> Download from <a href="https://lmstudio.ai" target="_blank" style="color:var(--accent);">https://lmstudio.ai 🔗</a>, load Llama 3.2, start local server, and set Base URL to <code>http://localhost:1234/v1</code>.
+          </div>
+        </div>
+
+        <!-- Section 2: Google Gemini -->
+        <div style="background: var(--bg-surface); padding: 18px; border-radius: var(--r-md); border: 1px solid var(--border);">
+          <div style="font-weight: 800; font-size: 1.05rem; color: var(--text-1); margin-bottom: 8px;">
+            ♊ 2. Google Gemini Setup (Free Tier Available)
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 8px; font-size: 0.84rem; color: var(--text-1);">
+            <div><strong>Step 1:</strong> Get a free Gemini API Key from Google AI Studio: <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color: var(--accent); text-decoration: underline; font-weight: 700;">Get Gemini Key 🔗</a></div>
+            <div><strong>Step 2:</strong> Configure Settings:
+              <ul style="margin: 4px 0 0 20px; list-style-type: disc; color: var(--text-2);">
+                <li><strong>AI Provider Engine:</strong> Select <code>Google Gemini API</code></li>
+                <li><strong>API Key:</strong> Paste your <code>AIzaSy...</code> key</li>
+                <li><strong>Model Name:</strong> <code>gemini-1.5-flash</code> (Fast & Free) or <code>gemini-1.5-pro</code></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 3: Anthropic Claude -->
+        <div style="background: var(--bg-surface); padding: 18px; border-radius: var(--r-md); border: 1px solid var(--border);">
+          <div style="font-weight: 800; font-size: 1.05rem; color: var(--text-1); margin-bottom: 8px;">
+            🧠 3. Anthropic Claude Setup
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 8px; font-size: 0.84rem; color: var(--text-1);">
+            <div><strong>Step 1:</strong> Obtain an API Key from Anthropic Console: <a href="https://console.anthropic.com/settings/keys" target="_blank" style="color: var(--accent); text-decoration: underline; font-weight: 700;">Get Claude Key 🔗</a></div>
+            <div><strong>Step 2:</strong> Configure Settings:
+              <ul style="margin: 4px 0 0 20px; list-style-type: disc; color: var(--text-2);">
+                <li><strong>AI Provider Engine:</strong> Select <code>Anthropic Claude API</code></li>
+                <li><strong>API Key:</strong> Paste your <code>sk-ant-...</code> key</li>
+                <li><strong>Model Name:</strong> <code>claude-3-haiku-20240307</code> or <code>claude-3-5-sonnet-20240620</code></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 4: OpenAI / ChatGPT -->
+        <div style="background: var(--bg-surface); padding: 18px; border-radius: var(--r-md); border: 1px solid var(--border);">
+          <div style="font-weight: 800; font-size: 1.05rem; color: var(--text-1); margin-bottom: 8px;">
+            ⚡ 4. OpenAI ChatGPT Setup
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 8px; font-size: 0.84rem; color: var(--text-1);">
+            <div><strong>Step 1:</strong> Generate an API Key from OpenAI Platform: <a href="https://platform.openai.com/api-keys" target="_blank" style="color: var(--accent); text-decoration: underline; font-weight: 700;">Get OpenAI Key 🔗</a></div>
+            <div><strong>Step 2:</strong> Configure Settings:
+              <ul style="margin: 4px 0 0 20px; list-style-type: disc; color: var(--text-2);">
+                <li><strong>AI Provider Engine:</strong> Select <code>OpenAI / Groq / DeepSeek</code></li>
+                <li><strong>Base URL:</strong> <code>https://api.openai.com/v1</code></li>
+                <li><strong>Model Name:</strong> <code>gpt-4o-mini</code> or <code>gpt-4o</code></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+      </div>
+      <div class="modal-footer" style="justify-content: flex-end;">
+        <button class="btn btn-primary" id="aiGuideModalOk">Got it! Close Guide</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Import Data Modal (CSV / JSON) -->
+  <div class="modal-overlay" id="importModal">
+    <div class="modal import-modal-content">
+      <div class="modal-header">
+        <div class="modal-title">
+          <span class="modal-icon">📥</span> Import Financial Data
+        </div>
+        <button class="modal-close" id="importModalClose">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="color: var(--text-2); font-size: 0.88rem; margin-bottom: 16px; line-height: 1.5;">
+          Select or drag & drop your <strong>CSV</strong> or <strong>JSON</strong> file below to import financial records into கணக்கு Book.
+        </p>
+
+        <!-- Drag & Drop Dropzone -->
+        <div class="import-dropzone" id="importDropzone">
+          <input type="file" id="universalFileInput" accept=".csv,.json" style="display:none;">
+          <div class="dropzone-content" id="dropzoneContent">
+            <div class="dropzone-icon">📁</div>
+            <div class="dropzone-text">Drag & drop CSV or JSON file here</div>
+            <div class="dropzone-subtext">or click to browse from device</div>
+            <div class="dropzone-supported">Supports <span>.CSV</span> & <span>.JSON</span></div>
+          </div>
+          <div class="selected-file-badge" id="selectedFileBadge" style="display: none;">
+            <span class="file-icon" id="selectedFileIcon">📄</span>
+            <div class="file-details">
+              <span class="file-name" id="selectedFileName">filename.json</span>
+              <span class="file-size" id="selectedFileSize">0 KB</span>
+            </div>
+            <button type="button" class="btn-remove-file" id="removeSelectedFileBtn" title="Remove File">✕</button>
+          </div>
+        </div>
+
+        <div id="importModalErrorBanner" class="auth-error-banner" style="display:none; margin-top: 14px;"></div>
+      </div>
+      <div class="modal-footer" style="justify-content: space-between;">
+        <button class="btn btn-secondary" id="importModalCancel">Cancel</button>
+        <button class="btn btn-primary" id="confirmImportBtn" disabled>📥 Import Data</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI Financial Assistant Large Modal Popup -->
+  <div class="modal-overlay" id="aiModalOverlay">
+    <div class="modal ai-large-modal" id="aiLargeModal">
+      <div class="ai-modal-header">
+        <div class="ai-modal-title">
+          <div class="ai-avatar-badge">🤖</div>
+          <div>
+            <div style="font-weight: 800; font-size: 1.05rem; color: var(--text-1); letter-spacing: -0.01em;">AI Financial Assistant</div>
+            <div class="ai-drawer-status" id="aiDrawerStatusBadge">🟢 Local LLM (llama3.2)</div>
+          </div>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <button type="button" class="btn-header-action" id="aiClearChatBtn" title="Clear Chat History">
+            <span>🧹</span> Clear
+          </button>
+          <button type="button" class="btn-header-action" id="aiOpenSettingsBtn" title="AI Settings">
+            <span>⚙️</span> Settings
+          </button>
+          <button type="button" class="modal-close" id="aiMinimizeDrawerBtn" title="Close Modal">&times;</button>
+        </div>
+      </div>
+
+      <!-- Quick Prompt Chips Header -->
+      <div class="ai-quick-chips" id="aiQuickChips">
+        <button class="ai-chip import-stmt-chip" id="openStatementUploadBtn" type="button">📄 Import Statement</button>
+        <button class="ai-chip" data-prompt="Summarize my financial standing for this month">📊 Budget Audit</button>
+        <button class="ai-chip" data-prompt="Am I spending too much on Wants this month?">🛍️ Wants Check</button>
+        <button class="ai-chip" data-prompt="Can I afford to spend ₹5,000 extra on Wants?">💡 Affordability Check</button>
+      </div>
+
+      <!-- Scrollable Chat Messages Container -->
+      <div class="ai-chat-messages" id="aiChatMessages">
+        <div class="ai-msg assistant">
+          <div class="ai-msg-bubble">
+            👋 Hello! I am your <strong>கணக்கு Book AI Assistant</strong>.
+            <br><br>
+            You can ask me questions about your monthly budget, calculate affordability, or issue direct text commands like:
+            <br>
+            • <em>"Add 900 in wants for lunch"</em>
+            <br>
+            • <em>"Delete my team lunch expense"</em>
+            <br>
+            • <em>"What is my net remaining income?"</em>
+          </div>
+        </div>
+      </div>
+
+      <!-- Chat Input Form -->
+      <form id="aiChatForm" onsubmit="return false;" class="ai-chat-input-area">
+        <input type="text" id="aiChatInput" placeholder="Ask financial question or command (e.g. Add 500 in wants)..." autocomplete="off">
+        <button type="submit" class="btn btn-primary" id="aiChatSendBtn">Send 🚀</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Upload Statement Modal -->
+  <div class="modal-overlay" id="statementUploadModal">
+    <div class="modal import-modal-content">
+      <div class="modal-header">
+        <div class="modal-title">
+          <span class="modal-icon">📄</span> Import Bank Statement via AI
+        </div>
+        <button class="modal-close" id="statementUploadClose">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="color: var(--text-2); font-size: 0.88rem; margin-bottom: 16px; line-height: 1.5;">
+          Upload your bank or credit card statement below. Our AI engine will automatically extract transaction details, dates, and amounts for categorization.
+        </p>
+
+        <!-- Dropzone for Statement -->
+        <div class="import-dropzone" id="statementDropzone">
+          <input type="file" id="statementFileInput" accept=".pdf,.txt,.csv" style="display:none;">
+          <div class="dropzone-content" id="stmtDropzoneContent">
+            <div class="dropzone-icon">🧾</div>
+            <div class="dropzone-text">Drag & drop your Bank Statement file here</div>
+            <div class="dropzone-subtext">or click to browse from device</div>
+            <div class="dropzone-supported">Supports <span>.PDF</span>, <span>.TXT</span> & <span>.CSV</span></div>
+          </div>
+          <div class="selected-file-badge" id="stmtSelectedFileBadge" style="display: none;">
+            <span class="file-icon">📄</span>
+            <div class="file-details">
+              <span class="file-name" id="stmtSelectedFileName">statement.pdf</span>
+              <span class="file-size" id="stmtSelectedFileSize">0 KB</span>
+            </div>
+            <button type="button" class="btn-remove-file" id="removeStmtFileBtn" title="Remove File">✕</button>
+          </div>
+        </div>
+
+        <div id="stmtLoadingBanner" class="auth-error-banner text-success" style="display:none; margin-top: 14px; background: rgba(139, 139, 245, 0.12); border-color: var(--accent-border); color: var(--text-1);">
+          <span>⏳ <strong>AI is extracting transactions...</strong> Please wait a moment while LLM parses your statement.</span>
+        </div>
+
+        <div id="stmtErrorBanner" class="auth-error-banner" style="display:none; margin-top: 14px;"></div>
+      </div>
+      <div class="modal-footer" style="justify-content: space-between;">
+        <button class="btn btn-secondary" id="statementUploadCancel">Cancel</button>
+        <button class="btn btn-primary" id="confirmStmtExtractBtn" disabled>⚡ Extract Transactions via AI</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Statement Categorization Multi-Step Wizard Modal -->
+  <div class="modal-overlay" id="statementWizardModal">
+    <div class="modal wizard-modal" id="statementWizardContent">
+      <!-- Wizard Header -->
+      <div class="wizard-header">
+        <div class="wizard-header-title">
+          <span class="wizard-icon">🧾</span> Statement Categorization Wizard
+        </div>
+        <button class="modal-close" id="statementWizardClose">&times;</button>
+      </div>
+
+      <!-- Step Progress Bar -->
+      <div class="wizard-progress-bar">
+        <div class="wizard-step-item active" data-step="1">
+          <span class="step-num">1</span>
+          <span class="step-label">Categorize</span>
+        </div>
+        <div class="step-divider"></div>
+        <div class="wizard-step-item" data-step="2">
+          <span class="step-num">2</span>
+          <span class="step-label">Needs</span>
+        </div>
+        <div class="step-divider"></div>
+        <div class="wizard-step-item" data-step="3">
+          <span class="step-num">3</span>
+          <span class="step-label">Wants</span>
+        </div>
+        <div class="step-divider"></div>
+        <div class="wizard-step-item" data-step="4">
+          <span class="step-num">4</span>
+          <span class="step-label">Income</span>
+        </div>
+        <div class="step-divider"></div>
+        <div class="wizard-step-item" data-step="5">
+          <span class="step-num">5</span>
+          <span class="step-label">Confirm</span>
+        </div>
+      </div>
+
+      <!-- Wizard Body Container -->
+      <div class="wizard-body">
+
+        <!-- STEP 1: Split-Screen Categorization -->
+        <div class="wizard-panel active" id="wizardStep1">
+          <div class="split-categorizer">
+            <!-- Left Panel: Extracted Transactions -->
+            <div class="categorizer-left">
+              <div class="panel-subtitle">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <span>Unassigned Transactions</span>
+                  <span class="badge" id="extractedCountBadge">0 Left</span>
+                </div>
+                <button type="button" class="btn-smart-cat" id="wizardSmartCategorizeBtn">✨ Smart Categorize</button>
+              </div>
+              <div class="trans-cards-container" id="extractedTransList">
+                <!-- Transaction Cards injected here -->
+              </div>
+            </div>
+
+            <!-- Right Panel: Category Drop Buckets -->
+            <div class="categorizer-right">
+              <div class="panel-subtitle">Assign Category Bucket</div>
+              <div class="bucket-zone zone-needs" id="bucketNeeds" data-category="needs">
+                <div class="bucket-header">
+                  <span>📋 Needs</span>
+                  <span class="bucket-count" id="bucketNeedsCount">0</span>
+                </div>
+                <div class="bucket-sub">Rent, Groceries, Fuel, Utilities, Pharmacy</div>
+                <div class="bucket-items" id="bucketNeedsItems"></div>
+              </div>
+
+              <div class="bucket-zone zone-wants" id="bucketWants" data-category="wants">
+                <div class="bucket-header">
+                  <span>🛍️ Wants</span>
+                  <span class="bucket-count" id="bucketWantsCount">0</span>
+                </div>
+                <div class="bucket-sub">Dining, Shopping, Movies, Travel, Subscriptions</div>
+                <div class="bucket-items" id="bucketWantsItems"></div>
+              </div>
+
+              <div class="bucket-zone zone-income" id="bucketIncome" data-category="income">
+                <div class="bucket-header">
+                  <span>💵 Income</span>
+                  <span class="bucket-count" id="bucketIncomeCount">0</span>
+                </div>
+                <div class="bucket-sub">Salary, Interest, Cash Credit, Refunds</div>
+                <div class="bucket-items" id="bucketIncomeItems"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- STEP 2: Review Needs -->
+        <div class="wizard-panel" id="wizardStep2">
+          <div class="panel-subtitle-bar">
+            <h3>📋 Review & Edit Needs Entries</h3>
+            <p>Verify details, adjust amounts, or add comments for your essential expenses.</p>
+          </div>
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Expense Name</th>
+                  <th>Amount (₹)</th>
+                  <th>Paid Via</th>
+                  <th>Comment / Note</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="wizardNeedsTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- STEP 3: Review Wants -->
+        <div class="wizard-panel" id="wizardStep3">
+          <div class="panel-subtitle-bar">
+            <h3>🛍️ Review & Edit Wants Entries</h3>
+            <p>Verify details, adjust amounts, or add comments for lifestyle & personal expenses.</p>
+          </div>
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Expense Name</th>
+                  <th>Amount (₹)</th>
+                  <th>Paid Via</th>
+                  <th>Comment / Note</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="wizardWantsTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- STEP 4: Review Income -->
+        <div class="wizard-panel" id="wizardStep4">
+          <div class="panel-subtitle-bar">
+            <h3>💵 Review & Edit Income Entries</h3>
+            <p>Verify income sources, credited amounts, and notes.</p>
+          </div>
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Income Source</th>
+                  <th>Amount (₹)</th>
+                  <th>Comment / Note</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="wizardIncomeTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- STEP 5: Final Review & Confirm -->
+        <div class="wizard-panel" id="wizardStep5">
+          <div class="panel-subtitle-bar">
+            <h3>✅ Final Confirmation</h3>
+            <p>Review total entries ready for import into your active month (<strong id="wizardTargetMonth">Aug 2026</strong>).</p>
+          </div>
+          <div class="wizard-summary-cards">
+            <div class="summary-card needs">
+              <div class="card-title">📋 Needs Expenses</div>
+              <div class="card-val" id="summaryNeedsVal">₹ 0.00</div>
+              <div class="card-sub" id="summaryNeedsCount">0 entries</div>
+            </div>
+            <div class="summary-card wants">
+              <div class="card-title">🛍️ Wants Expenses</div>
+              <div class="card-val" id="summaryWantsVal">₹ 0.00</div>
+              <div class="card-sub" id="summaryWantsCount">0 entries</div>
+            </div>
+            <div class="summary-card income">
+              <div class="card-title">💵 Income Entries</div>
+              <div class="card-val" id="summaryIncomeVal">₹ 0.00</div>
+              <div class="card-sub" id="summaryIncomeCount">0 entries</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Wizard Navigation Footer -->
+      <div class="wizard-footer">
+        <button class="btn btn-secondary" id="wizardPrevBtn" disabled>← Previous</button>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-secondary" id="wizardCancelBtn">Cancel</button>
+          <button class="btn btn-primary" id="wizardNextBtn">Next: Review Needs →</button>
+          <button class="btn btn-primary" id="wizardSubmitBtn" style="display: none;">🚀 Submit & Import Data</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- AI Floating Action Button -->
+  <button class="ai-fab-button" id="aiFabBtn" title="Open AI Financial Assistant">
+    <span class="ai-fab-icon">🤖</span>
+    <span class="ai-fab-label">AI Assistant</span>
+    <span class="ai-fab-badge" id="aiFabStatusDot"></span>
+  </button>
 
   <!-- Toast Container -->
   <div class="toast-container" id="toastContainer"></div>
