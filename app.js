@@ -1714,16 +1714,22 @@ function renderBanks() {
       .sort((a, b) => sortEntriesDesc(a.item, b.item));
 
     tbody.innerHTML = sortedBanks.map(({ item: b, originalIndex }, displayIdx) => {
+      let effectiveType = b.type;
+      if (!effectiveType && b.note) {
+        if (b.note.startsWith('Paid:')) effectiveType = 'payment_deduction';
+        else if (b.note.startsWith('Payment:')) effectiveType = 'bill_payment';
+      }
+
       let badgeHtml = '';
-      if (b.type === 'transfer_out') {
+      if (effectiveType === 'transfer_out') {
         badgeHtml = `<span class="badge-source badge-transfer-out">↔️ Outflow</span> `;
-      } else if (b.type === 'transfer_in') {
+      } else if (effectiveType === 'transfer_in') {
         badgeHtml = `<span class="badge-source badge-transfer-in">↔️ Inflow</span> `;
-      } else if (b.type === 'payment_deduction') {
+      } else if (effectiveType === 'payment_deduction') {
         badgeHtml = `<span class="badge-source badge-transfer-out">💸 Expense</span> `;
-      } else if (b.type === 'bill_payment') {
+      } else if (effectiveType === 'bill_payment') {
         badgeHtml = `<span class="badge-source badge-transfer-out">💳 Bill Paid</span> `;
-      } else if (b.type === 'refund') {
+      } else if (effectiveType === 'refund') {
         badgeHtml = `<span class="badge-source badge-transfer-in">↩️ Refund</span> `;
       }
 
@@ -2178,12 +2184,9 @@ function processBankAdjustment(bankId, amountChange, note, type) {
   Object.values(state.data).forEach(m => {
     if (m.banks && Array.isArray(m.banks)) allBankEntries = allBankEntries.concat(m.banks);
   });
-  const accEntries = allBankEntries.filter(b => b.accountId === bankId);
-  let curBal = 0;
-  if (accEntries.length > 0) {
-    accEntries.sort((a, b) => new Date(b.createdAt || b.date || 0) - new Date(a.createdAt || a.date || 0));
-    curBal = Number(accEntries[0].balance) || 0;
-  }
+  const balancesInfo = getAccountLatestBalances(allBankEntries);
+  const accInfo = balancesInfo.find(b => b.account.id === bankId);
+  const curBal = accInfo ? accInfo.latestBalance : 0;
   
   const d = getCurrentData();
   d.banks.push({
