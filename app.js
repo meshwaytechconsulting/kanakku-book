@@ -832,9 +832,19 @@ function getAccountLatestBalances(banksList) {
   return accounts.map(acc => {
     const accEntries = entries.filter(e => e.accountId === acc.id || e.accountNumber === acc.accountNumber || (e.name && e.name.toLowerCase() === acc.bankName.toLowerCase()));
 
-    if (accEntries.length > 0) {
-      accEntries.sort(sortEntriesDesc);
-      const latest = accEntries[0];
+    // Filter out corrupted auto-deduction entries for balance computation
+    // These entries had ₹0 balance due to the old cross-month lookup bug
+    const authoritativeEntries = accEntries.filter(e => {
+      if (e.type === 'payment_deduction') return false;
+      if (e.note && (e.note.startsWith('Paid:') || e.note.startsWith('Payment:'))) return false;
+      return true;
+    });
+
+    const entriesToUse = authoritativeEntries.length > 0 ? authoritativeEntries : accEntries;
+
+    if (entriesToUse.length > 0) {
+      entriesToUse.sort(sortEntriesDesc);
+      const latest = entriesToUse[0];
       return {
         account: acc,
         latestBalance: Number(latest.balance) || 0,
@@ -1698,7 +1708,7 @@ function renderBanks() {
             <span class="bank-acc-num-badge">${escapeHtml(formatAccountNum(item.account.accountNumber))}</span>
           </div>
           <div class="bank-latest-date">As of ${item.latestDate}</div>
-          <div class="bank-bal-value">${fmt(item.latestBalance)}</div>
+          <div class="bank-bal-value" style="color: ${item.latestBalance < 0 ? 'var(--red)' : 'var(--green)'}">${fmt(item.latestBalance)}</div>
           <div class="bank-card-footer" style="margin-top:10px;display:flex;justify-content:space-between;align-items:center;">
             <span style="font-size:0.75rem;color:var(--text-3);">${item.entryCount} balance log${item.entryCount !== 1 ? 's' : ''}</span>
             <button class="btn-icon delete" onclick="deleteBankAccount('${item.account.id}')" title="Delete Account">🗑️</button>
@@ -1743,7 +1753,7 @@ function renderBanks() {
         <td class="text-muted">${b.date || getTodayDate()}</td>
         <td><strong>${escapeHtml(b.bankName || b.name)}</strong></td>
         <td><span class="bank-acc-num-badge">${escapeHtml(formatAccountNum(b.accountNumber))}</span></td>
-        <td class="amount positive">${fmt(b.balance)}</td>
+        <td class="amount ${Number(b.balance) >= 0 ? 'positive' : 'negative'}">${fmt(b.balance)}</td>
         <td style="font-size:0.83rem;">${noteContent}</td>
         <td>
           <div class="actions">
