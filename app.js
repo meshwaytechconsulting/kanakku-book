@@ -1710,7 +1710,12 @@ function renderBanks() {
 
   const tbody = document.getElementById('banksTableBody');
   // Filter out auto payment deduction entries — only show manual balance records & transfers
-  const visibleBanks = (d.banks || []).filter(b => b.type !== 'payment_deduction');
+  const visibleBanks = (d.banks || []).filter(b => {
+    if (b.type === 'payment_deduction') return false;
+    // Backward compat: old entries without type tag but with auto-generated note patterns
+    if (b.note && (b.note.startsWith('Paid:') || b.note.startsWith('Payment:'))) return false;
+    return true;
+  });
   if (visibleBanks.length === 0) {
     tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">🏦</div><p>No balance entries recorded</p></div></td></tr>`;
   } else {
