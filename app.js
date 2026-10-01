@@ -672,24 +672,6 @@ function initializeMonthData(monthName) {
   const prevMonthName = getPreviousMonthName(monthName);
   if (prevMonthName && state.data[prevMonthName]) {
     const prevData = state.data[prevMonthName];
-    if (prevData.banks && Array.isArray(prevData.banks)) {
-      const latestBalances = getAccountLatestBalances(prevData.banks);
-      latestBalances.forEach(b => {
-        if (b.latestBalance > 0) {
-          monthData.banks.push({
-            id: 'bank_cf_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
-            accountId: b.account.id,
-            bankName: b.account.bankName,
-            accountNumber: b.account.accountNumber,
-            date: monthName.split(' ')[0] === 'January' ? `${monthName.split(' ')[1]}-01-01` : getTodayDate(),
-            balance: b.latestBalance,
-            note: 'Carried forward from ' + prevMonthName
-          });
-        }
-      });
-      const totalCF = monthData.banks.reduce((sum, item) => sum + item.balance, 0);
-      monthData.initialBankBalance = totalCF;
-    }
     if (prevData.loansAndCardsData) {
       monthData.loansAndCardsData = JSON.parse(JSON.stringify(prevData.loansAndCardsData));
     }
@@ -832,19 +814,9 @@ function getAccountLatestBalances(banksList) {
   return accounts.map(acc => {
     const accEntries = entries.filter(e => e.accountId === acc.id || e.accountNumber === acc.accountNumber || (e.name && e.name.toLowerCase() === acc.bankName.toLowerCase()));
 
-    // Filter out corrupted auto-deduction entries for balance computation
-    // These entries had ₹0 balance due to the old cross-month lookup bug
-    const authoritativeEntries = accEntries.filter(e => {
-      if (e.type === 'payment_deduction') return false;
-      if (e.note && (e.note.startsWith('Paid:') || e.note.startsWith('Payment:'))) return false;
-      return true;
-    });
-
-    const entriesToUse = authoritativeEntries.length > 0 ? authoritativeEntries : accEntries;
-
-    if (entriesToUse.length > 0) {
-      entriesToUse.sort(sortEntriesDesc);
-      const latest = entriesToUse[0];
+    if (accEntries.length > 0) {
+      accEntries.sort(sortEntriesDesc);
+      const latest = accEntries[0];
       return {
         account: acc,
         latestBalance: Number(latest.balance) || 0,
