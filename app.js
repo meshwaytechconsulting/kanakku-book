@@ -1700,13 +1700,8 @@ function renderBanks() {
   }
 
   const tbody = document.getElementById('banksTableBody');
-  // Filter out auto payment deduction entries — only show manual balance records & transfers
-  const visibleBanks = (d.banks || []).filter(b => {
-    if (b.type === 'payment_deduction') return false;
-    // Backward compat: old entries without type tag but with auto-generated note patterns
-    if (b.note && (b.note.startsWith('Paid:') || b.note.startsWith('Payment:'))) return false;
-    return true;
-  });
+  // Show all entries including dynamic payment deductions and refunds so the user can see the ledger!
+  const visibleBanks = d.banks || [];
   if (visibleBanks.length === 0) {
     tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">🏦</div><p>No balance entries recorded</p></div></td></tr>`;
   } else {
@@ -1724,6 +1719,10 @@ function renderBanks() {
         badgeHtml = `<span class="badge-source badge-transfer-out">↔️ Outflow</span> `;
       } else if (b.type === 'transfer_in') {
         badgeHtml = `<span class="badge-source badge-transfer-in">↔️ Inflow</span> `;
+      } else if (b.type === 'payment_deduction') {
+        badgeHtml = `<span class="badge-source badge-transfer-out">💸 Expense</span> `;
+      } else if (b.type === 'refund') {
+        badgeHtml = `<span class="badge-source badge-transfer-in">↩️ Refund</span> `;
       }
 
       const noteContent = b.note ? `${badgeHtml}${escapeHtml(b.note)}` : (badgeHtml || '-');
@@ -1944,6 +1943,7 @@ function recordSavingsEntry() {
   const instId = document.getElementById('selectSavingsInstrumentId').value;
   const date = document.getElementById('savingsEntryDateInput').value || getTodayDate();
   const amount = Number(document.getElementById('savingsEntryAmountInput').value);
+  const paymentSource = document.getElementById('savingsPaymentSourceSelect')?.value || 'cash';
 
   if (!instId) { showToast('Select a Savings Instrument first', 'error'); return; }
   if (isNaN(amount) || amount <= 0) { showToast('Enter valid contribution amount', 'error'); return; }
@@ -1960,12 +1960,15 @@ function recordSavingsEntry() {
     accountNumber: inst.accountNumber,
     name: inst.name,
     amount,
+    paymentSource,
   };
 
   d.savings.push(entry);
   if (inst.type === 'FD' || inst.type === 'RD') {
     d.deposits.push(entry);
   }
+
+  processPaymentSourceEffect(paymentSource, amount, `Investment: ${inst.name}`, date);
 
   saveToStorage();
   renderSavings();
@@ -2165,37 +2168,42 @@ function getPaymentSourceBadge(paymentSource) {
   return `<span class="badge-source badge-cash">💵 Cash</span>`;
 }
 
+function processBankAdjustment(bankId, amountChange, note, type) {
+  const acc = (state.registeredAccounts || []).find(a => a.id === bankId);
+  if (!acc) return;
+  
+  let allBankEntries = [];
+  Object.values(state.data).forEach(m => {
+    if (m.banks && Array.isArray(m.banks)) allBankEntries = allBankEntries.concat(m.banks);
+  });
+  const accEntries = allBankEntries.filter(b => b.accountId === bankId);
+  let curBal = 0;
+  if (accEntries.length > 0) {
+    accEntries.sort((a, b) => new Date(b.createdAt || b.date || 0) - new Date(a.createdAt || a.date || 0));
+    curBal = Number(accEntries[0].balance) || 0;
+  }
+  
+  const d = getCurrentData();
+  d.banks.push({
+    id: 'bank_adj_' + Date.now() + Math.floor(Math.random() * 1000),
+    createdAt: new Date().toISOString(),
+    accountId: bankId,
+    bankName: acc.bankName,
+    accountNumber: acc.accountNumber,
+    date: getTodayDate(),
+    balance: Math.max(0, curBal + amountChange),
+    note: note,
+    type: type
+  });
+}
+
 function processPaymentSourceEffect(paymentSource, amount, description, date) {
   if (!paymentSource || paymentSource === 'cash') return;
   const d = getCurrentData();
 
   if (paymentSource.startsWith('bank_')) {
     const accountId = paymentSource.replace('bank_', '');
-    const acc = (state.registeredAccounts || []).find(a => a.id === accountId);
-    if (acc) {
-      // Use ALL bank entries across ALL months for accurate balance
-      let allBankEntries = [];
-      Object.values(state.data).forEach(m => {
-        if (m.banks && Array.isArray(m.banks)) allBankEntries = allBankEntries.concat(m.banks);
-      });
-      const accEntries = allBankEntries.filter(b => b.accountId === accountId);
-      let currentBal = 0;
-      if (accEntries.length > 0) {
-        accEntries.sort((a, b) => new Date(b.createdAt || b.date || 0) - new Date(a.createdAt || a.date || 0));
-        currentBal = Number(accEntries[0].balance) || 0;
-      }
-      d.banks.push({
-        id: 'bank_auto_' + Date.now(),
-        createdAt: new Date().toISOString(),
-        accountId,
-        bankName: acc.bankName,
-        accountNumber: acc.accountNumber,
-        date: date || getTodayDate(),
-        balance: Math.max(0, currentBal - amount),
-        note: `Paid: ${description}`,
-        type: 'payment_deduction'
-      });
-    }
+    processBankAdjustment(accountId, -amount, `Paid: ${description}`, 'payment_deduction');
   } else if (paymentSource.startsWith('debt_')) {
     const debtId = paymentSource.replace('debt_', '');
     if (!d.loansAndCardsData) d.loansAndCardsData = {};
@@ -2622,6 +2630,20 @@ window.deleteItem = function(type, index) {
   const item = d[type][index];
   const name = item.name || item.bankName || 'item';
   if (!confirm(`Delete "${name}"?`)) return;
+
+  // Handle Refunds for Bank / Credit Card
+  if (['needs', 'wants', 'savings'].includes(type) && item.paymentSource) {
+    if (item.paymentSource.startsWith('bank_')) {
+      const bankId = item.paymentSource.replace('bank_', '');
+      processBankAdjustment(bankId, Number(item.amount) || 0, `Refund for deleted ${type}: ${name}`, 'refund');
+    } else if (item.paymentSource.startsWith('debt_')) {
+      const debtId = item.paymentSource.replace('debt_', '');
+      if (d.loansAndCardsData && d.loansAndCardsData[debtId]) {
+        d.loansAndCardsData[debtId].outstanding = Math.max(0, (Number(d.loansAndCardsData[debtId].outstanding) || 0) - (Number(item.amount) || 0));
+      }
+    }
+  }
+
   d[type].splice(index, 1);
   saveToStorage();
   renderAll();
@@ -2757,6 +2779,8 @@ function saveEdit() {
 
   if (!item) return;
 
+  const oldItem = JSON.parse(JSON.stringify(item));
+
   const editDate = document.getElementById('editDate') ? document.getElementById('editDate').value : getTodayDate();
   item.date = editDate;
 
@@ -2787,6 +2811,31 @@ function saveEdit() {
         item.paymentSource = document.getElementById('editPaymentSource').value;
       }
       break;
+  }
+
+  // Handle Bank/Debt Adjustments for Needs/Wants/Savings
+  if (['needs', 'wants', 'savings'].includes(targetType) && (oldItem.paymentSource || item.paymentSource)) {
+    // 1. Revert old item
+    if (oldItem.paymentSource && oldItem.paymentSource.startsWith('bank_')) {
+      const bankId = oldItem.paymentSource.replace('bank_', '');
+      processBankAdjustment(bankId, Number(oldItem.amount) || 0, `Refund: Edit ${oldItem.name}`, 'refund');
+    } else if (oldItem.paymentSource && oldItem.paymentSource.startsWith('debt_')) {
+      const debtId = oldItem.paymentSource.replace('debt_', '');
+      if (d.loansAndCardsData && d.loansAndCardsData[debtId]) {
+        d.loansAndCardsData[debtId].outstanding = Math.max(0, (Number(d.loansAndCardsData[debtId].outstanding) || 0) - (Number(oldItem.amount) || 0));
+      }
+    }
+
+    // 2. Apply new item
+    if (item.paymentSource && item.paymentSource.startsWith('bank_')) {
+      const bankId = item.paymentSource.replace('bank_', '');
+      processBankAdjustment(bankId, -(Number(item.amount) || 0), `Paid: ${item.name}`, 'payment_deduction');
+    } else if (item.paymentSource && item.paymentSource.startsWith('debt_')) {
+      const debtId = item.paymentSource.replace('debt_', '');
+      if (d.loansAndCardsData && d.loansAndCardsData[debtId]) {
+        d.loansAndCardsData[debtId].outstanding = (Number(d.loansAndCardsData[debtId].outstanding) || 0) + (Number(item.amount) || 0);
+      }
+    }
   }
 
   saveToStorage();
