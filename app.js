@@ -220,12 +220,12 @@ async function fetchUserDataFromCloud(userId, isManual = false) {
       .eq('user_id', userId)
       .maybeSingle();
     if (!error && data && data.data) {
-      const cloudCount = getEntriesCount(data.data);
-      const localCount = getEntriesCount(state);
+      const cloudTimestamp = data.data.lastModified || '';
+      const localTimestamp = state.lastModified || '';
 
-      if (localCount > cloudCount && !isManual) {
+      if (localTimestamp > cloudTimestamp && !isManual) {
         syncUserDataToCloud(userId);
-      } else if (cloudCount > 0 || isManual) {
+      } else if (cloudTimestamp || isManual) {
         state = data.data;
         saveToStorage(false);
         renderAll();
@@ -446,6 +446,7 @@ async function registerAccount(firstName, lastName, email, password, confirmPass
     customEndDate: getTodayDate(),
     registeredAccounts: [],
     registeredSavingsInstruments: [],
+    registeredLoansAndCards: [],
     customSavingsTypes: [...DEFAULT_SAVINGS_TYPES],
     data: {},
   };
@@ -500,6 +501,7 @@ function setDefaultDates() {
 function saveToStorage(pushToCloud = true) {
   if (!authState.activeUserId) return;
   try {
+    state.lastModified = new Date().toISOString();
     const key = getUserStorageKey(authState.activeUserId);
     localStorage.setItem(key, JSON.stringify(state));
   } catch (e) {
@@ -520,6 +522,7 @@ function loadFromStorage() {
       state = JSON.parse(saved);
       if (!state.registeredAccounts) state.registeredAccounts = [];
       if (!state.registeredSavingsInstruments) state.registeredSavingsInstruments = [];
+      if (!state.registeredLoansAndCards) state.registeredLoansAndCards = [];
       if (!state.customSavingsTypes || state.customSavingsTypes.length === 0) {
         state.customSavingsTypes = [...DEFAULT_SAVINGS_TYPES];
       }
@@ -538,6 +541,7 @@ function loadFromStorage() {
         customEndDate: getTodayDate(),
         registeredAccounts: [],
         registeredSavingsInstruments: [],
+        registeredLoansAndCards: [],
         customSavingsTypes: [...DEFAULT_SAVINGS_TYPES],
         data: {},
       };
@@ -553,6 +557,7 @@ function loadFromStorage() {
       customEndDate: getTodayDate(),
       registeredAccounts: [],
       registeredSavingsInstruments: [],
+      registeredLoansAndCards: [],
       customSavingsTypes: [...DEFAULT_SAVINGS_TYPES],
       data: {},
     };
@@ -718,11 +723,20 @@ function getFilteredData() {
     allBanks = allBanks.concat((m.banks || []).filter(item => isDateInRange(item.date)));
   });
 
+  let allIncomeEntries = [];
+  let allIncomeTotal = 0;
+  Object.values(state.data).forEach(m => {
+    if (m.income && m.income.entries) {
+      allIncomeEntries = allIncomeEntries.concat(m.income.entries.filter(item => isDateInRange(item.date)));
+    }
+  });
+  allIncomeTotal = allIncomeEntries.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+
   return {
-    income: d.income,
+    income: { ...d.income, entries: allIncomeEntries, total: allIncomeTotal },
     initialBankBalance: d.initialBankBalance,
-    banks: allBanks.length > 0 ? allBanks : (d.banks || []),
-    deposits: allDeposits.length > 0 ? allDeposits : (d.deposits || []),
+    banks: allBanks,
+    deposits: allDeposits,
     wants: allWants,
     needs: allNeeds,
     savings: allSavings,
@@ -814,15 +828,6 @@ function getAccountLatestBalances(banksList) {
   return accounts.map(acc => {
     let accEntries = entries.filter(e => e.accountId === acc.id || e.accountNumber === acc.accountNumber || (e.name && e.name.toLowerCase() === acc.bankName.toLowerCase()));
 
-    // Filter out corrupted 0.00 entries created by the old cross-month payment deduction bug
-    accEntries = accEntries.filter(e => {
-      if (Number(e.balance) === 0) {
-        if (e.type === 'payment_deduction') return false;
-        if (e.note && (e.note.startsWith('Paid:') || e.note.startsWith('Payment:'))) return false;
-      }
-      return true;
-    });
-
     if (accEntries.length > 0) {
       accEntries.sort(sortEntriesDesc);
       const latest = accEntries[0];
@@ -871,16 +876,30 @@ function getComputedValues() {
   const banksTotal = bankAccountBalances.reduce((s, b) => s + b.latestBalance, 0);
   const depositsTotal = allDeposits.reduce((s, dp) => s + (Number(dp.amount) || 0), 0);
 
-  // Loans & Credit Cards
+  // Loans & Credit Cards — read outstanding from the latest month that has data
   const debtInstruments = state.registeredLoansAndCards || [];
-  const loansAndCardsData = rawData.loansAndCardsData || {};
+  const sortedMonthKeys = Object.keys(state.data).sort((a, b) => {
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const [mA, yA] = a.split(' ');
+    const [mB, yB] = b.split(' ');
+    return (Number(yA) * 12 + months.indexOf(mA)) - (Number(yB) * 12 + months.indexOf(mB));
+  });
+  function getLatestDebtData(instId) {
+    for (let i = sortedMonthKeys.length - 1; i >= 0; i--) {
+      const mData = state.data[sortedMonthKeys[i]];
+      if (mData && mData.loansAndCardsData && mData.loansAndCardsData[instId]) {
+        return mData.loansAndCardsData[instId];
+      }
+    }
+    return null;
+  }
   let totalCreditLimit = 0;
   let totalCardDebt = 0;
   let totalLoanDebt = 0;
   let totalMonthlyEmi = 0;
 
   debtInstruments.forEach(inst => {
-    const dData = loansAndCardsData[inst.id] || { outstanding: inst.initialOutstanding || 0 };
+    const dData = getLatestDebtData(inst.id) || { outstanding: inst.initialOutstanding || 0 };
     const currentOutstanding = Number(dData.outstanding) || 0;
     if (inst.type === 'credit_card') {
       totalCreditLimit += (Number(inst.limit) || 0);
@@ -1164,12 +1183,12 @@ function renderDashboard() {
 function renderBudgetBar(v) {
   const bar = document.getElementById('budgetBar');
   const legend = document.getElementById('budgetLegend');
-  const income = v.income || 1;
+  const income = v.income;
 
-  const needsPct = ((v.needsTotal / income) * 100).toFixed(1);
-  const wantsPct = ((v.wantsTotal / income) * 100).toFixed(1);
-  const savingsPct = ((v.savingsTotal / income) * 100).toFixed(1);
-  const netPct = Math.max(0, ((v.netRemainingIncome / income) * 100)).toFixed(1);
+  const needsPct = income > 0 ? ((v.needsTotal / income) * 100).toFixed(1) : '0.0';
+  const wantsPct = income > 0 ? ((v.wantsTotal / income) * 100).toFixed(1) : '0.0';
+  const savingsPct = income > 0 ? ((v.savingsTotal / income) * 100).toFixed(1) : '0.0';
+  const netPct = income > 0 ? Math.max(0, ((v.netRemainingIncome / income) * 100)).toFixed(1) : '0.0';
 
   bar.innerHTML = `
     <div class="segment needs-seg" style="width:${needsPct}%"></div>
@@ -1350,7 +1369,7 @@ function renderIncome() {
   const d = getCurrentData();
   
   if (!d.income.entries) d.income.entries = [];
-  d.income.total = d.income.entries.reduce((sum, entry) => sum + Number(entry.amount), 0);
+  d.income.total = d.income.entries.reduce((sum, entry) => sum + (Number(entry.amount) || 0), 0);
   
   document.getElementById('incomeInput').value = fmt(d.income.total);
   document.getElementById('needsPct').value = d.income.needsPct || 50;
@@ -1401,9 +1420,18 @@ function updateIncomeSplits() {
 
 function saveIncome() {
   const d = getCurrentData();
-  d.income.needsPct = Number(document.getElementById('needsPct').value) || 0;
-  d.income.savingsPct = Number(document.getElementById('savingsPct').value) || 0;
-  d.income.wantsPct = Number(document.getElementById('wantsPct').value) || 0;
+  const needsPct = Number(document.getElementById('needsPct').value) || 0;
+  const savingsPct = Number(document.getElementById('savingsPct').value) || 0;
+  const wantsPct = Number(document.getElementById('wantsPct').value) || 0;
+
+  if (needsPct + savingsPct + wantsPct > 100) {
+    showToast('Budget percentages cannot exceed 100% in total.', 'error');
+    return;
+  }
+
+  d.income.needsPct = needsPct;
+  d.income.savingsPct = savingsPct;
+  d.income.wantsPct = wantsPct;
   d.initialBankBalance = Number(document.getElementById('initialBalanceInput').value) || 0;
   saveToStorage();
   updateIncomeSplits();
@@ -1430,10 +1458,11 @@ function addIncomeEntry() {
   });
   
   d.income.entries.sort((a, b) => new Date(b.date) - new Date(a.date));
-  
+  d.income.total = d.income.entries.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+
   document.getElementById('incomeSourceInput').value = '';
   document.getElementById('incomeAmountInput').value = '';
-  
+
   saveToStorage();
   renderIncome();
   renderDashboard();
@@ -1444,6 +1473,7 @@ window.deleteIncomeEntry = function(id) {
   const d = getCurrentData();
   if (!d.income.entries) return;
   d.income.entries = d.income.entries.filter(e => e.id !== id);
+  d.income.total = d.income.entries.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
   saveToStorage();
   renderAll();
   showToast('Income entry deleted', 'info');
@@ -1472,7 +1502,7 @@ function createBankAccount() {
 
   state.registeredAccounts.push(newAcc);
 
-  if (initialBal >= 0) {
+  if (initialBal > 0) {
     const d = getCurrentData();
     d.banks.push({
       date: getTodayDate(),
@@ -1562,6 +1592,11 @@ function transferBankFunds() {
 
   const currentFromBal = fromBalItem ? fromBalItem.latestBalance : 0;
   const currentToBal = toBalItem ? toBalItem.latestBalance : 0;
+
+  if (amount > currentFromBal) {
+    showToast(`Insufficient balance in source account. Available: ${fmt(currentFromBal)}`, 'error');
+    return;
+  }
 
   const newFromBal = currentFromBal - amount;
   const newToBal = currentToBal + amount;
@@ -1933,7 +1968,7 @@ function createSavingsInstrument() {
       amount: initialAmount,
     };
     d.savings.push(entry);
-    if (type === 'FD' || type === 'RD') {
+    if (type.includes('FD') || type.includes('RD')) {
       d.deposits.push(entry);
     }
   }
@@ -1972,7 +2007,7 @@ function recordSavingsEntry() {
   };
 
   d.savings.push(entry);
-  if (inst.type === 'FD' || inst.type === 'RD') {
+  if (inst.type.includes('FD') || inst.type.includes('RD')) {
     d.deposits.push(entry);
   }
 
@@ -2188,6 +2223,11 @@ function processBankAdjustment(bankId, amountChange, note, type) {
   const accInfo = balancesInfo.find(b => b.account.id === bankId);
   const curBal = accInfo ? accInfo.latestBalance : 0;
   
+  const newBalance = curBal + amountChange;
+  if (newBalance < 0) {
+    showToast(`Warning: ${acc.bankName} balance insufficient. Set to ₹0.`, 'warning');
+  }
+
   const d = getCurrentData();
   d.banks.push({
     id: 'bank_adj_' + Date.now() + Math.floor(Math.random() * 1000),
@@ -2196,7 +2236,7 @@ function processBankAdjustment(bankId, amountChange, note, type) {
     bankName: acc.bankName,
     accountNumber: acc.accountNumber,
     date: getTodayDate(),
-    balance: Math.max(0, curBal + amountChange),
+    balance: Math.max(0, newBalance),
     note: note,
     type: type
   });
@@ -2892,11 +2932,11 @@ function importCSV(file, callback) {
       const d = getCurrentData();
       let importedCount = 0;
 
-      // Wipe existing month data for fresh CSV import replacement
-      d.needs = [];
-      d.wants = [];
-      d.savings = [];
-      d.income = { total: 0, entries: [], needsPct: 50, savingsPct: 20, wantsPct: 10 };
+      if (!d.needs) d.needs = [];
+      if (!d.wants) d.wants = [];
+      if (!d.savings) d.savings = [];
+      if (!d.income) d.income = { total: 0, entries: [], needsPct: 50, savingsPct: 20, wantsPct: 10 };
+      if (!d.income.entries) d.income.entries = [];
 
       for (let i = 1; i < lines.length; i++) {
         const line = lines[i];
@@ -3809,7 +3849,7 @@ function toggleAIProviderFields(provider) {
 function buildAIFinancialContext() {
   const d = getFilteredData();
   const v = getComputedValues();
-  const activeMonth = state.selectedMonth;
+  const activeMonth = state.currentMonth;
 
   const recentWants = (d.wants || []).slice(-5).map(w => `- [Wants] ${w.name}: ₹${w.amount} (${w.paymentSource || 'cash'})`).join('\n');
   const recentNeeds = (d.needs || []).slice(-5).map(n => `- [Needs] ${n.name}: ₹${n.amount} (${n.paymentSource || 'cash'})`).join('\n');
@@ -4117,6 +4157,19 @@ window.confirmAIDelete = function(cat, idx, btnEl) {
   const d = getCurrentData();
   if (!d[cat] || !d[cat][idx]) return;
   const item = d[cat][idx];
+
+  if (['needs', 'wants', 'savings'].includes(cat) && item.paymentSource) {
+    if (item.paymentSource.startsWith('bank_')) {
+      const bankId = item.paymentSource.replace('bank_', '');
+      processBankAdjustment(bankId, Number(item.amount) || 0, `Refund for AI-deleted ${cat}: ${item.name || 'item'}`, 'refund');
+    } else if (item.paymentSource.startsWith('debt_')) {
+      const debtId = item.paymentSource.replace('debt_', '');
+      if (d.loansAndCardsData && d.loansAndCardsData[debtId]) {
+        d.loansAndCardsData[debtId].outstanding = Math.max(0, (Number(d.loansAndCardsData[debtId].outstanding) || 0) - (Number(item.amount) || 0));
+      }
+    }
+  }
+
   d[cat].splice(idx, 1);
   saveToStorage();
   renderAll();
@@ -4590,13 +4643,13 @@ function renderWizardStep5() {
   const wantsTot = wizardData.wants.reduce((sum, i) => sum + Number(i.amount || 0), 0);
   const incTot = wizardData.income.reduce((sum, i) => sum + Number(i.amount || 0), 0);
 
-  document.getElementById('summaryNeedsVal').textContent = `₹ ${fmt(needsTot)}`;
+  document.getElementById('summaryNeedsVal').textContent = fmt(needsTot);
   document.getElementById('summaryNeedsCount').textContent = `${wizardData.needs.length} entries`;
 
-  document.getElementById('summaryWantsVal').textContent = `₹ ${fmt(wantsTot)}`;
+  document.getElementById('summaryWantsVal').textContent = fmt(wantsTot);
   document.getElementById('summaryWantsCount').textContent = `${wizardData.wants.length} entries`;
 
-  document.getElementById('summaryIncomeVal').textContent = `₹ ${fmt(incTot)}`;
+  document.getElementById('summaryIncomeVal').textContent = fmt(incTot);
   document.getElementById('summaryIncomeCount').textContent = `${wizardData.income.length} entries`;
 }
 
