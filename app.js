@@ -678,10 +678,10 @@ function initializeMonthData(monthName) {
         if (b.latestBalance > 0) {
           monthData.banks.push({
             id: 'bank_cf_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
-            accountId: b.accountId,
-            bankName: b.bankName,
-            accountNumber: b.accountNumber,
-            date: getTodayDate(),
+            accountId: b.account.id,
+            bankName: b.account.bankName,
+            accountNumber: b.account.accountNumber,
+            date: monthName.split(' ')[0] === 'January' ? `${monthName.split(' ')[1]}-01-01` : getTodayDate(),
             balance: b.latestBalance,
             note: 'Carried forward from ' + prevMonthName
           });
@@ -869,7 +869,14 @@ function getComputedValues() {
   const dailyBreakdown = getDailyBreakdown(d);
   const dailyTotal = dailyBreakdown.dailyTotal;
 
-  const bankAccountBalances = getAccountLatestBalances(d.banks);
+  // Gather ALL bank entries across ALL months for accurate latest-balance computation
+  let allBankEntries = [];
+  Object.values(state.data).forEach(m => {
+    if (m.banks && Array.isArray(m.banks)) {
+      allBankEntries = allBankEntries.concat(m.banks);
+    }
+  });
+  const bankAccountBalances = getAccountLatestBalances(allBankEntries);
   const banksTotal = bankAccountBalances.reduce((s, b) => s + b.latestBalance, 0);
   const depositsTotal = (d.deposits || []).reduce((s, dp) => s + (Number(dp.amount) || 0), 0);
 
@@ -1551,7 +1558,14 @@ function transferBankFunds() {
   }
 
   const d = getCurrentData();
-  const latestBalances = getAccountLatestBalances(d.banks);
+  // Gather ALL bank entries across ALL months for accurate balance
+  let allBankEntries = [];
+  Object.values(state.data).forEach(m => {
+    if (m.banks && Array.isArray(m.banks)) {
+      allBankEntries = allBankEntries.concat(m.banks);
+    }
+  });
+  const latestBalances = getAccountLatestBalances(allBankEntries);
   const fromBalItem = latestBalances.find(b => b.account.id === fromId);
   const toBalItem = latestBalances.find(b => b.account.id === toId);
 
