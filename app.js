@@ -1709,11 +1709,17 @@ function renderBanks() {
   }
 
   const tbody = document.getElementById('banksTableBody');
-  if (!d.banks || d.banks.length === 0) {
+  // Filter out auto payment deduction entries — only show manual balance records & transfers
+  const visibleBanks = (d.banks || []).filter(b => b.type !== 'payment_deduction');
+  if (visibleBanks.length === 0) {
     tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">🏦</div><p>No balance entries recorded</p></div></td></tr>`;
   } else {
-    const sortedBanks = d.banks
-      .map((item, originalIndex) => ({ item, originalIndex }))
+    const sortedBanks = visibleBanks
+      .map((item, originalIndex) => {
+        // Find the real originalIndex in d.banks for edit/delete
+        const realIndex = (d.banks || []).indexOf(item);
+        return { item, originalIndex: realIndex };
+      })
       .sort((a, b) => sortEntriesDesc(a.item, b.item));
 
     tbody.innerHTML = sortedBanks.map(({ item: b, originalIndex }, displayIdx) => {
@@ -2165,20 +2171,27 @@ function processPaymentSourceEffect(paymentSource, amount, description, date) {
     const accountId = paymentSource.replace('bank_', '');
     const acc = (state.registeredAccounts || []).find(a => a.id === accountId);
     if (acc) {
-      const accEntries = (d.banks || []).filter(b => b.accountId === accountId);
+      // Use ALL bank entries across ALL months for accurate balance
+      let allBankEntries = [];
+      Object.values(state.data).forEach(m => {
+        if (m.banks && Array.isArray(m.banks)) allBankEntries = allBankEntries.concat(m.banks);
+      });
+      const accEntries = allBankEntries.filter(b => b.accountId === accountId);
       let currentBal = 0;
       if (accEntries.length > 0) {
-        accEntries.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+        accEntries.sort((a, b) => new Date(b.createdAt || b.date || 0) - new Date(a.createdAt || a.date || 0));
         currentBal = Number(accEntries[0].balance) || 0;
       }
       d.banks.push({
         id: 'bank_auto_' + Date.now(),
+        createdAt: new Date().toISOString(),
         accountId,
         bankName: acc.bankName,
         accountNumber: acc.accountNumber,
         date: date || getTodayDate(),
         balance: Math.max(0, currentBal - amount),
-        note: `Paid: ${description}`
+        note: `Paid: ${description}`,
+        type: 'payment_deduction'
       });
     }
   } else if (paymentSource.startsWith('debt_')) {
@@ -2393,20 +2406,27 @@ function processDebtRepaySubmit() {
     const bankAccId = source.replace('bank_', '');
     const acc = (state.registeredAccounts || []).find(a => a.id === bankAccId);
     if (acc) {
-      const accEntries = (d.banks || []).filter(b => b.accountId === bankAccId);
+      // Use ALL bank entries across ALL months for accurate balance
+      let allBankEntries = [];
+      Object.values(state.data).forEach(m => {
+        if (m.banks && Array.isArray(m.banks)) allBankEntries = allBankEntries.concat(m.banks);
+      });
+      const accEntries = allBankEntries.filter(b => b.accountId === bankAccId);
       let curBal = 0;
       if (accEntries.length > 0) {
-        accEntries.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+        accEntries.sort((a, b) => new Date(b.createdAt || b.date || 0) - new Date(a.createdAt || a.date || 0));
         curBal = Number(accEntries[0].balance) || 0;
       }
       d.banks.push({
         id: 'bank_pay_' + Date.now(),
+        createdAt: new Date().toISOString(),
         accountId: bankAccId,
         bankName: acc.bankName,
         accountNumber: acc.accountNumber,
         date,
         balance: Math.max(0, curBal - amount),
-        note: `Payment: ${inst.name}`
+        note: `Payment: ${inst.name}`,
+        type: 'payment_deduction'
       });
     }
   }
