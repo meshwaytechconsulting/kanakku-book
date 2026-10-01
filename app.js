@@ -1523,6 +1523,82 @@ function recordBankBalance() {
   showToast(`Recorded balance ${fmt(balance)} for ${acc.bankName}`, 'success');
 }
 
+function transferBankFunds() {
+  const fromId = document.getElementById('transferFromAccountId').value;
+  const toId = document.getElementById('transferToAccountId').value;
+  const date = document.getElementById('transferDateInput').value || getTodayDate();
+  const amount = Number(document.getElementById('transferAmountInput').value);
+  const note = document.getElementById('transferNoteInput').value.trim();
+
+  if (!fromId || !toId) {
+    showToast('Select both From and To bank accounts', 'error');
+    return;
+  }
+  if (fromId === toId) {
+    showToast('From and To bank accounts must be different', 'error');
+    return;
+  }
+  if (isNaN(amount) || amount <= 0) {
+    showToast('Enter a valid positive transfer amount', 'error');
+    return;
+  }
+
+  const fromAcc = state.registeredAccounts.find(a => a.id === fromId);
+  const toAcc = state.registeredAccounts.find(a => a.id === toId);
+  if (!fromAcc || !toAcc) {
+    showToast('Selected bank account not found', 'error');
+    return;
+  }
+
+  const d = getCurrentData();
+  const latestBalances = getAccountLatestBalances(d.banks);
+  const fromBalItem = latestBalances.find(b => b.account.id === fromId);
+  const toBalItem = latestBalances.find(b => b.account.id === toId);
+
+  const currentFromBal = fromBalItem ? fromBalItem.latestBalance : 0;
+  const currentToBal = toBalItem ? toBalItem.latestBalance : 0;
+
+  const newFromBal = currentFromBal - amount;
+  const newToBal = currentToBal + amount;
+
+  const now = new Date();
+  const timeStr1 = now.toISOString();
+  const timeStr2 = new Date(now.getTime() + 1000).toISOString();
+
+  // Outflow entry for From Account
+  d.banks.push({
+    date,
+    createdAt: timeStr1,
+    accountId: fromAcc.id,
+    bankName: fromAcc.bankName,
+    accountNumber: fromAcc.accountNumber,
+    balance: newFromBal,
+    note: note ? `Transfer to ${toAcc.bankName} (${note})` : `Transfer to ${toAcc.bankName}`,
+    type: 'transfer_out',
+    transferAmount: amount
+  });
+
+  // Inflow entry for To Account
+  d.banks.push({
+    date,
+    createdAt: timeStr2,
+    accountId: toAcc.id,
+    bankName: toAcc.bankName,
+    accountNumber: toAcc.accountNumber,
+    balance: newToBal,
+    note: note ? `Transfer from ${fromAcc.bankName} (${note})` : `Transfer from ${fromAcc.bankName}`,
+    type: 'transfer_in',
+    transferAmount: amount
+  });
+
+  saveToStorage();
+  renderBanks();
+
+  document.getElementById('transferAmountInput').value = '';
+  document.getElementById('transferNoteInput').value = '';
+  showToast(`Transferred ${fmt(amount)} from ${fromAcc.bankName} to ${toAcc.bankName}`, 'success');
+}
+
 window.deleteBankAccount = function(accId) {
   const acc = state.registeredAccounts.find(a => a.id === accId);
   if (!acc) return;
@@ -1556,6 +1632,42 @@ function renderBanks() {
     }
   }
 
+  const fromSelect = document.getElementById('transferFromAccountId');
+  const toSelect = document.getElementById('transferToAccountId');
+  const transferDateInput = document.getElementById('transferDateInput');
+
+  if (transferDateInput && !transferDateInput.value) {
+    transferDateInput.value = getTodayDate();
+  }
+
+  if (fromSelect && toSelect) {
+    if (state.registeredAccounts.length === 0) {
+      fromSelect.innerHTML = `<option value="">No Bank Accounts Available</option>`;
+      toSelect.innerHTML = `<option value="">No Bank Accounts Available</option>`;
+    } else {
+      const prevFrom = fromSelect.value;
+      const prevTo = toSelect.value;
+
+      const options = state.registeredAccounts.map(acc => `
+        <option value="${acc.id}">${escapeHtml(acc.bankName)} (${formatAccountNum(acc.accountNumber)})</option>
+      `).join('');
+
+      fromSelect.innerHTML = options;
+      toSelect.innerHTML = options;
+
+      if (prevFrom && state.registeredAccounts.some(a => a.id === prevFrom)) {
+        fromSelect.value = prevFrom;
+      }
+      if (prevTo && state.registeredAccounts.some(a => a.id === prevTo)) {
+        toSelect.value = prevTo;
+      } else if (state.registeredAccounts.length > 1) {
+        if (fromSelect.selectedIndex === 0) {
+          toSelect.selectedIndex = 1;
+        }
+      }
+    }
+  }
+
   const cardsGrid = document.getElementById('bankCardsGrid');
   if (cardsGrid) {
     if (v.bankAccountBalances.length === 0) {
@@ -1584,19 +1696,30 @@ function renderBanks() {
 
   const tbody = document.getElementById('banksTableBody');
   if (!d.banks || d.banks.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">🏦</div><p>No balance entries recorded</p></div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">🏦</div><p>No balance entries recorded</p></div></td></tr>`;
   } else {
     const sortedBanks = d.banks
       .map((item, originalIndex) => ({ item, originalIndex }))
       .sort((a, b) => sortEntriesDesc(a.item, b.item));
 
-    tbody.innerHTML = sortedBanks.map(({ item: b, originalIndex }, displayIdx) => `
+    tbody.innerHTML = sortedBanks.map(({ item: b, originalIndex }, displayIdx) => {
+      let badgeHtml = '';
+      if (b.type === 'transfer_out') {
+        badgeHtml = `<span class="badge-source badge-transfer-out">↔️ Outflow</span> `;
+      } else if (b.type === 'transfer_in') {
+        badgeHtml = `<span class="badge-source badge-transfer-in">↔️ Inflow</span> `;
+      }
+
+      const noteContent = b.note ? `${badgeHtml}${escapeHtml(b.note)}` : (badgeHtml || '-');
+
+      return `
       <tr>
         <td class="text-muted">${displayIdx + 1}</td>
         <td class="text-muted">${b.date || getTodayDate()}</td>
         <td><strong>${escapeHtml(b.bankName || b.name)}</strong></td>
         <td><span class="bank-acc-num-badge">${escapeHtml(formatAccountNum(b.accountNumber))}</span></td>
         <td class="amount positive">${fmt(b.balance)}</td>
+        <td style="font-size:0.83rem;">${noteContent}</td>
         <td>
           <div class="actions">
             <button class="btn-icon edit" onclick="openEditModal('banks', ${originalIndex})" title="Edit">✏️</button>
@@ -1604,7 +1727,7 @@ function renderBanks() {
           </div>
         </td>
       </tr>
-    `).join('');
+    `}).join('');
   }
 
   document.getElementById('banksTotalValue').textContent = fmt(v.banksTotal);
@@ -2505,9 +2628,13 @@ function openEditModal(type, index) {
           <label>Account Number</label>
           <input type="text" id="editFieldAcc" value="${escapeHtml(item.accountNumber || '')}">
         </div>
-        <div class="form-group">
+        <div class="form-group mb-4">
           <label>Recorded Balance (₹)</label>
           <input type="number" id="editField2" value="${item.balance}" min="0" step="0.01">
+        </div>
+        <div class="form-group">
+          <label>Note / Details</label>
+          <input type="text" id="editFieldNote" value="${escapeHtml(item.note || '')}">
         </div>
       `;
       break;
@@ -2602,6 +2729,9 @@ function saveEdit() {
       item.bankName = document.getElementById('editField1').value.trim();
       item.accountNumber = document.getElementById('editFieldAcc').value.trim();
       item.balance = Number(document.getElementById('editField2').value) || 0;
+      if (document.getElementById('editFieldNote')) {
+        item.note = document.getElementById('editFieldNote').value.trim();
+      }
       break;
     case 'deposits':
     case 'savings':
@@ -2631,7 +2761,7 @@ function saveEdit() {
 
 // ─── CSV Export / Import ──────────────────────
 function exportCSV() {
-  const rows = [['Date', 'Month', 'Category', 'Type', 'Particulars/Name', 'Account Number/Paid Via', 'Comments', 'Amount/Balance']];
+  const rows = [['Date', 'Month', 'Category', 'Type', 'Particulars/Name', 'Account Number/Paid Via', 'Comments/Notes', 'Amount/Balance']];
 
   Object.keys(state.data || {}).forEach(month => {
     const d = state.data[month];
@@ -2656,7 +2786,7 @@ function exportCSV() {
 
     // Export Savings
     (d.savings || []).forEach(item => {
-      rows.push([item.date || getTodayDate(), month, 'Savings', item.type || 'Savings', item.name || '', item.accountNumber || '', item.comment || '', item.amount || 0]);
+      rows.push([item.date || getTodayDate(), month, 'Savings', item.type || 'Savings', item.name || '', item.accountNumber || item.paymentSource || '', item.comment || '', item.amount || 0]);
     });
 
     // Export Deposits
@@ -2666,7 +2796,7 @@ function exportCSV() {
 
     // Export Bank Accounts
     (d.banks || []).forEach(item => {
-      rows.push([item.date || getTodayDate(), month, 'Banks', 'Account', item.bankName || item.name || '', item.accountNumber || '', item.comment || '', item.balance || 0]);
+      rows.push([item.date || getTodayDate(), month, 'Banks', item.type || 'Account', item.bankName || item.name || '', item.accountNumber || '', item.note || item.comment || '', item.balance || 0]);
     });
   });
 
@@ -3136,6 +3266,8 @@ function setupEventListeners() {
   // Bank Forms
   document.getElementById('createAccountBtn').addEventListener('click', createBankAccount);
   document.getElementById('recordBankBalanceBtn').addEventListener('click', recordBankBalance);
+  const transferFundsBtn = document.getElementById('transferFundsBtn');
+  if (transferFundsBtn) transferFundsBtn.addEventListener('click', transferBankFunds);
 
   // Savings Forms
   document.getElementById('createSavingsInstrumentBtn').addEventListener('click', createSavingsInstrument);

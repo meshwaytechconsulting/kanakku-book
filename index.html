@@ -406,7 +406,33 @@
           <button class="btn btn-primary" id="recordBankBalanceBtn">+ Record Balance Entry</button>
         </div>
 
-        <!-- Step 3: Full Log History Table -->
+        <!-- Step 3: Bank to Bank Transfer -->
+        <div class="card-title">↔️ Bank to Bank Account Transfer</div>
+        <div class="inline-form" id="bankTransferForm">
+          <div class="form-group" style="min-width: 180px;">
+            <label for="transferFromAccountId">From Account</label>
+            <select id="transferFromAccountId"></select>
+          </div>
+          <div class="form-group" style="min-width: 180px;">
+            <label for="transferToAccountId">To Account</label>
+            <select id="transferToAccountId"></select>
+          </div>
+          <div class="form-group" style="max-width: 140px;">
+            <label for="transferDateInput">Date</label>
+            <input type="date" id="transferDateInput">
+          </div>
+          <div class="form-group">
+            <label for="transferAmountInput">Transfer Amount (₹)</label>
+            <input type="number" id="transferAmountInput" placeholder="0.00" min="0.01" step="0.01">
+          </div>
+          <div class="form-group">
+            <label for="transferNoteInput">Note (Optional)</label>
+            <input type="text" id="transferNoteInput" placeholder="e.g. Savings move, Self UPI">
+          </div>
+          <button class="btn btn-primary" id="transferFundsBtn">↔️ Transfer Funds</button>
+        </div>
+
+        <!-- Step 4: Full Log History Table -->
         <div class="card-title">Balance Entry Log History</div>
         <div class="table-container">
           <table class="data-table" id="banksTable">
@@ -417,6 +443,7 @@
                 <th>Bank Name</th>
                 <th>Account Number</th>
                 <th>Recorded Balance</th>
+                <th>Note / Details</th>
                 <th>Actions</th>
               </tr>
             </thead>
