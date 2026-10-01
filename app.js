@@ -853,14 +853,14 @@ function getComputedValues() {
 
   // Gather ALL bank entries across ALL months for accurate latest-balance computation
   let allBankEntries = [];
+  let allDeposits = [];
   Object.values(state.data).forEach(m => {
-    if (m.banks && Array.isArray(m.banks)) {
-      allBankEntries = allBankEntries.concat(m.banks);
-    }
+    if (m.banks && Array.isArray(m.banks)) allBankEntries = allBankEntries.concat(m.banks);
+    if (m.deposits && Array.isArray(m.deposits)) allDeposits = allDeposits.concat(m.deposits);
   });
   const bankAccountBalances = getAccountLatestBalances(allBankEntries);
   const banksTotal = bankAccountBalances.reduce((s, b) => s + b.latestBalance, 0);
-  const depositsTotal = (d.deposits || []).reduce((s, dp) => s + (Number(dp.amount) || 0), 0);
+  const depositsTotal = allDeposits.reduce((s, dp) => s + (Number(dp.amount) || 0), 0);
 
   // Loans & Credit Cards
   const debtInstruments = state.registeredLoansAndCards || [];
@@ -2006,7 +2006,13 @@ function renderSavings() {
 
   // ─── Registered Instruments Cards ───
   const cardsGrid = document.getElementById('savingsCardsGrid');
-  const cumulativeSavings = getInstrumentCumulativeSavings(d.savings);
+  let allSavings = [];
+  let allDeposits = [];
+  Object.values(state.data).forEach(m => {
+    if (m.savings && Array.isArray(m.savings)) allSavings = allSavings.concat(m.savings);
+    if (m.deposits && Array.isArray(m.deposits)) allDeposits = allDeposits.concat(m.deposits);
+  });
+  const cumulativeSavings = getInstrumentCumulativeSavings(allSavings);
 
   if (cardsGrid) {
     if (cumulativeSavings.length === 0) {
@@ -2035,7 +2041,7 @@ function renderSavings() {
 
   // ─── Cumulative FD/RD Deposits Overview (merged from Deposits page) ───
   const cumulativeGrid = document.getElementById('cumulativeDepositsGrid');
-  const depositEntries = (d.deposits || []).concat((d.savings || []).filter(s => s.type === 'FD' || s.type === 'RD'));
+  const depositEntries = allDeposits.concat(allSavings.filter(s => s.type === 'FD' || s.type === 'RD'));
 
   const uniqueDepositEntries = [];
   const seenKeys = new Set();
