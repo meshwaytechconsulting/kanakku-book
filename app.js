@@ -812,7 +812,16 @@ function getAccountLatestBalances(banksList) {
   const entries = banksList || [];
 
   return accounts.map(acc => {
-    const accEntries = entries.filter(e => e.accountId === acc.id || e.accountNumber === acc.accountNumber || (e.name && e.name.toLowerCase() === acc.bankName.toLowerCase()));
+    let accEntries = entries.filter(e => e.accountId === acc.id || e.accountNumber === acc.accountNumber || (e.name && e.name.toLowerCase() === acc.bankName.toLowerCase()));
+
+    // Filter out corrupted 0.00 entries created by the old cross-month payment deduction bug
+    accEntries = accEntries.filter(e => {
+      if (Number(e.balance) === 0) {
+        if (e.type === 'payment_deduction') return false;
+        if (e.note && (e.note.startsWith('Paid:') || e.note.startsWith('Payment:'))) return false;
+      }
+      return true;
+    });
 
     if (accEntries.length > 0) {
       accEntries.sort(sortEntriesDesc);
