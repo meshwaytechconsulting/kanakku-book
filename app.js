@@ -1721,6 +1721,8 @@ function renderBanks() {
         badgeHtml = `<span class="badge-source badge-transfer-in">↔️ Inflow</span> `;
       } else if (b.type === 'payment_deduction') {
         badgeHtml = `<span class="badge-source badge-transfer-out">💸 Expense</span> `;
+      } else if (b.type === 'bill_payment') {
+        badgeHtml = `<span class="badge-source badge-transfer-out">💳 Bill Paid</span> `;
       } else if (b.type === 'refund') {
         badgeHtml = `<span class="badge-source badge-transfer-in">↩️ Refund</span> `;
       }
@@ -2414,31 +2416,7 @@ function processDebtRepaySubmit() {
 
   if (source.startsWith('bank_')) {
     const bankAccId = source.replace('bank_', '');
-    const acc = (state.registeredAccounts || []).find(a => a.id === bankAccId);
-    if (acc) {
-      // Use ALL bank entries across ALL months for accurate balance
-      let allBankEntries = [];
-      Object.values(state.data).forEach(m => {
-        if (m.banks && Array.isArray(m.banks)) allBankEntries = allBankEntries.concat(m.banks);
-      });
-      const accEntries = allBankEntries.filter(b => b.accountId === bankAccId);
-      let curBal = 0;
-      if (accEntries.length > 0) {
-        accEntries.sort((a, b) => new Date(b.createdAt || b.date || 0) - new Date(a.createdAt || a.date || 0));
-        curBal = Number(accEntries[0].balance) || 0;
-      }
-      d.banks.push({
-        id: 'bank_pay_' + Date.now(),
-        createdAt: new Date().toISOString(),
-        accountId: bankAccId,
-        bankName: acc.bankName,
-        accountNumber: acc.accountNumber,
-        date,
-        balance: Math.max(0, curBal - amount),
-        note: `Payment: ${inst.name}`,
-        type: 'payment_deduction'
-      });
-    }
+    processBankAdjustment(bankAccId, -amount, `Bill Payment: ${inst.name}`, 'bill_payment');
   }
 
   if (actionType === 'loan') {
