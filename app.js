@@ -228,6 +228,7 @@ async function fetchUserDataFromCloud(userId, isManual = false) {
       } else if (cloudTimestamp || isManual) {
         state = data.data;
         saveToStorage(false);
+        migrateExistingDebtPayments();
         renderAll();
         updateCloudSyncBadge('☁️ Synced to Cloud', true);
         if (isManual) showToast('Finances synchronized across devices!', 'success');
@@ -346,6 +347,7 @@ async function checkAuthSession() {
     if (landingScreen) landingScreen.style.display = 'none';
     if (appWrapper) appWrapper.style.display = 'block';
     loadFromStorage();
+    migrateExistingDebtPayments();
     renderAll();
     fetchUserDataFromCloud(authUser.id);
   }
@@ -2333,6 +2335,95 @@ function repairBankBalances() {
   }
 
   return { repairedCount, migratedCount };
+}
+
+function migrateExistingDebtPayments() {
+  let migrated = 0;
+  const instruments = state.registeredLoansAndCards || [];
+
+  Object.keys(state.data || {}).forEach(monthKey => {
+    const monthData = state.data[monthKey];
+    if (!monthData) return;
+    if (!monthData.loansAndCardsData) monthData.loansAndCardsData = {};
+
+    const toRemoveFromNeeds = [];
+    (monthData.needs || []).forEach((entry, idx) => {
+      if (!entry.name || !entry.name.startsWith('EMI: ')) return;
+      const instName = entry.name.replace('EMI: ', '');
+      const inst = instruments.find(i => i.name === instName && i.type === 'loan');
+      if (!inst) return;
+
+      if (!monthData.loansAndCardsData[inst.id]) {
+        monthData.loansAndCardsData[inst.id] = { outstanding: inst.initialOutstanding || 0, payments: [] };
+      }
+      if (!monthData.loansAndCardsData[inst.id].payments) {
+        monthData.loansAndCardsData[inst.id].payments = [];
+      }
+
+      const alreadyMigrated = monthData.loansAndCardsData[inst.id].payments.some(p =>
+        p.date === entry.date && p.amount === entry.amount && p.type === 'emi'
+      );
+      if (alreadyMigrated) return;
+
+      monthData.loansAndCardsData[inst.id].payments.push({
+        date: entry.date || '',
+        createdAt: entry.createdAt || new Date().toISOString(),
+        instrumentId: inst.id,
+        instrumentName: inst.name,
+        type: 'emi',
+        amount: Number(entry.amount) || 0,
+        paymentSource: entry.paymentSource || 'cash',
+        comment: entry.comment || ''
+      });
+      toRemoveFromNeeds.push(idx);
+      migrated++;
+    });
+
+    for (let i = toRemoveFromNeeds.length - 1; i >= 0; i--) {
+      monthData.needs.splice(toRemoveFromNeeds[i], 1);
+    }
+
+    (monthData.banks || []).forEach(bankEntry => {
+      if (!bankEntry.note || !bankEntry.note.startsWith('Bill Payment: ')) return;
+      if (bankEntry.type !== 'bill_payment') return;
+      const instName = bankEntry.note.replace('Bill Payment: ', '');
+      const inst = instruments.find(i => i.name === instName && i.type === 'credit_card');
+      if (!inst) return;
+
+      if (!monthData.loansAndCardsData[inst.id]) {
+        monthData.loansAndCardsData[inst.id] = { outstanding: inst.initialOutstanding || 0, payments: [] };
+      }
+      if (!monthData.loansAndCardsData[inst.id].payments) {
+        monthData.loansAndCardsData[inst.id].payments = [];
+      }
+
+      const deductionAmount = Math.abs(Number(bankEntry.balance) - (Number(bankEntry._prevBalance) || Number(bankEntry.balance)));
+      const amount = deductionAmount > 0 ? deductionAmount : 0;
+      if (amount === 0) return;
+
+      const alreadyMigrated = monthData.loansAndCardsData[inst.id].payments.some(p =>
+        p.date === bankEntry.date && Math.abs(p.amount - amount) < 0.01 && p.type === 'bill_payment'
+      );
+      if (alreadyMigrated) return;
+
+      monthData.loansAndCardsData[inst.id].payments.push({
+        date: bankEntry.date || '',
+        createdAt: bankEntry.createdAt || new Date().toISOString(),
+        instrumentId: inst.id,
+        instrumentName: inst.name,
+        type: 'bill_payment',
+        amount,
+        paymentSource: bankEntry.accountId ? `bank_${bankEntry.accountId}` : 'cash',
+        comment: ''
+      });
+      migrated++;
+    });
+  });
+
+  if (migrated > 0) {
+    saveToStorage(true);
+  }
+  return migrated;
 }
 
 function renderPaymentSourceOptions() {
