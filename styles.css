@@ -438,20 +438,7 @@ select:focus, input:focus {
 .sidebar-overlay.active { opacity: 1; visibility: visible; }
 
 /* ─── Global Sync UI ───────────────────────── */
-.global-sync-wrapper {
-  position: fixed;
-  top: 32px;
-  right: 40px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  z-index: 95;
-}
 @media (max-width: 768px) {
-  .global-sync-wrapper {
-    top: 14px;
-    right: 64px;
-  }
   .hide-mobile { display: none; }
 }
 
