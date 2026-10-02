@@ -793,6 +793,30 @@
         <div class="bank-cards-grid mb-4" id="loansGrid">
           <!-- Dynamically populated -->
         </div>
+
+        <!-- Payment History Table -->
+        <div class="card-title mb-2">Payment History</div>
+        <div class="table-container">
+          <table class="data-table" id="debtPaymentsTable">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Date</th>
+                <th>Instrument</th>
+                <th>Type</th>
+                <th>Paid Via</th>
+                <th>Comments</th>
+                <th>Amount</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="debtPaymentsTableBody"></tbody>
+          </table>
+          <div class="table-footer">
+            <span class="total-label">Total Payments</span>
+            <span class="total-value" id="debtPaymentsTotalValue">&#8377; 0.00</span>
+          </div>
+        </div>
       </section>
 
     </main>
@@ -970,6 +994,11 @@
         <div class="form-group mb-3">
           <label for="debtRepayDateInput">Payment Date</label>
           <input type="date" id="debtRepayDateInput">
+        </div>
+
+        <div class="form-group mb-3">
+          <label for="debtRepayCommentInput">Comments (Optional)</label>
+          <input type="text" id="debtRepayCommentInput" placeholder="e.g. Jan EMI, partial payment...">
         </div>
       </div>
       <div class="modal-footer">

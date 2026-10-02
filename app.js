@@ -679,6 +679,9 @@ function initializeMonthData(monthName) {
     const prevData = state.data[prevMonthName];
     if (prevData.loansAndCardsData) {
       monthData.loansAndCardsData = JSON.parse(JSON.stringify(prevData.loansAndCardsData));
+      Object.keys(monthData.loansAndCardsData).forEach(id => {
+        monthData.loansAndCardsData[id].payments = [];
+      });
     }
   }
   return monthData;
@@ -2491,6 +2494,54 @@ function renderLoansAndCards() {
       `;
     }).join('');
   }
+
+  renderDebtPayments();
+}
+
+function renderDebtPayments() {
+  const d = getCurrentData();
+  const tbody = document.getElementById('debtPaymentsTableBody');
+  const totalEl = document.getElementById('debtPaymentsTotalValue');
+  if (!tbody) return;
+
+  const allPayments = [];
+  Object.keys(d.loansAndCardsData || {}).forEach(instId => {
+    const instData = d.loansAndCardsData[instId];
+    (instData.payments || []).forEach((p, idx) => {
+      allPayments.push({ ...p, instrumentId: instId, _index: idx });
+    });
+  });
+
+  allPayments.sort(sortEntriesDesc);
+
+  if (allPayments.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="8" class="empty-state"><div class="empty-icon">📋</div><p>No payments recorded this month</p></td></tr>`;
+    if (totalEl) totalEl.textContent = fmt(0);
+    return;
+  }
+
+  let total = 0;
+  tbody.innerHTML = allPayments.map((p, i) => {
+    total += Number(p.amount) || 0;
+    const typeLabel = p.type === 'emi' ? 'EMI' : 'Bill Payment';
+    return `
+      <tr>
+        <td>${i + 1}</td>
+        <td>${p.date || '-'}</td>
+        <td>${escapeHtml(p.instrumentName || p.instrumentId)}</td>
+        <td>${typeLabel}</td>
+        <td>${getPaymentSourceBadge(p.paymentSource)}</td>
+        <td>${escapeHtml(p.comment || '')}</td>
+        <td class="text-red">${fmt(p.amount)}</td>
+        <td class="actions">
+          <button class="btn-icon" onclick="openEditDebtPayment('${p.instrumentId}', ${p._index})" title="Edit">✏️</button>
+          <button class="btn-icon delete" onclick="deleteDebtPayment('${p.instrumentId}', ${p._index})" title="Delete">🗑️</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  if (totalEl) totalEl.textContent = fmt(total);
 }
 
 window.openDebtRepayModal = function(id, actionType) {
@@ -2517,6 +2568,7 @@ function processDebtRepaySubmit() {
   const amount = Number(document.getElementById('debtRepayAmountInput').value) || 0;
   const source = document.getElementById('debtRepaySourceSelect').value;
   const date = document.getElementById('debtRepayDateInput').value || getTodayDate();
+  const comment = (document.getElementById('debtRepayCommentInput').value || '').trim();
 
   if (amount <= 0) { showToast('Enter valid payment amount', 'error'); return; }
 
@@ -2525,30 +2577,99 @@ function processDebtRepaySubmit() {
 
   const d = getCurrentData();
   if (!d.loansAndCardsData) d.loansAndCardsData = {};
-  if (!d.loansAndCardsData[id]) d.loansAndCardsData[id] = { outstanding: inst.initialOutstanding || 0 };
+  if (!d.loansAndCardsData[id]) d.loansAndCardsData[id] = { outstanding: inst.initialOutstanding || 0, payments: [] };
+  if (!d.loansAndCardsData[id].payments) d.loansAndCardsData[id].payments = [];
 
   d.loansAndCardsData[id].outstanding = Math.max(0, (Number(d.loansAndCardsData[id].outstanding) || 0) - amount);
 
   if (source.startsWith('bank_')) {
     const bankAccId = source.replace('bank_', '');
-    processBankAdjustment(bankAccId, -amount, `Bill Payment: ${inst.name}`, 'bill_payment');
+    processBankAdjustment(bankAccId, -amount, `${actionType === 'loan' ? 'EMI' : 'Bill Payment'}: ${inst.name}`, 'bill_payment');
   }
 
-  if (actionType === 'loan') {
-    d.needs.push({
-      date,
-      createdAt: new Date().toISOString(),
-      name: `EMI: ${inst.name}`,
-      paymentSource: source,
-      amount
-    });
-  }
+  d.loansAndCardsData[id].payments.push({
+    date,
+    createdAt: new Date().toISOString(),
+    instrumentId: id,
+    instrumentName: inst.name,
+    type: actionType === 'loan' ? 'emi' : 'bill_payment',
+    amount,
+    paymentSource: source,
+    comment
+  });
 
   saveToStorage();
   renderAll();
   document.getElementById('debtRepayModal').classList.remove('active');
+  document.getElementById('debtRepayCommentInput').value = '';
   showToast(`${actionType === 'credit_card' ? 'Credit Card Bill' : 'EMI'} Payment Recorded!`, 'success');
 }
+
+window.openEditDebtPayment = function(instrumentId, paymentIndex) {
+  const d = getCurrentData();
+  const instData = d.loansAndCardsData && d.loansAndCardsData[instrumentId];
+  if (!instData || !instData.payments || !instData.payments[paymentIndex]) return;
+
+  const payment = instData.payments[paymentIndex];
+  editContext = { type: 'debtPayment', instrumentId, index: paymentIndex };
+
+  const modal = document.getElementById('editModal');
+  const title = document.getElementById('editModalTitle');
+  const body = document.getElementById('editModalBody');
+
+  title.textContent = `Edit ${payment.type === 'emi' ? 'EMI' : 'Bill'} Payment`;
+  body.innerHTML = `
+    <div class="form-group mb-4">
+      <label>Date</label>
+      <input type="date" id="editDate" value="${payment.date || getTodayDate()}">
+    </div>
+    <div class="form-group mb-4">
+      <label>Instrument</label>
+      <input type="text" id="editField1" value="${escapeHtml(payment.instrumentName || '')}" disabled>
+    </div>
+    <div class="form-group mb-4">
+      <label>Paid Via</label>
+      <select id="editPaymentSource" class="payment-source-select">
+        <option value="cash">💵 Cash</option>
+      </select>
+    </div>
+    <div class="form-group mb-4">
+      <label>Comments</label>
+      <input type="text" id="editComment" value="${escapeHtml(payment.comment || '')}" placeholder="Optional notes">
+    </div>
+    <div class="form-group">
+      <label>Amount (₹)</label>
+      <input type="number" id="editField2" value="${payment.amount}" min="0.01" step="0.01">
+    </div>
+  `;
+
+  renderPaymentSourceOptions();
+  const psSelect = document.getElementById('editPaymentSource');
+  if (psSelect && payment.paymentSource) {
+    psSelect.value = payment.paymentSource;
+  }
+  modal.classList.add('active');
+};
+
+window.deleteDebtPayment = function(instrumentId, paymentIndex) {
+  const d = getCurrentData();
+  const instData = d.loansAndCardsData && d.loansAndCardsData[instrumentId];
+  if (!instData || !instData.payments || !instData.payments[paymentIndex]) return;
+
+  const payment = instData.payments[paymentIndex];
+
+  instData.outstanding = (Number(instData.outstanding) || 0) + (Number(payment.amount) || 0);
+
+  if (payment.paymentSource && payment.paymentSource.startsWith('bank_')) {
+    const bankAccId = payment.paymentSource.replace('bank_', '');
+    processBankAdjustment(bankAccId, Number(payment.amount) || 0, `Refund: ${payment.instrumentName || 'Payment'}`, 'refund');
+  }
+
+  instData.payments.splice(paymentIndex, 1);
+  saveToStorage();
+  renderAll();
+  showToast('Payment deleted & balances restored', 'info');
+};
 
 window.deleteDebtInstrument = function(id) {
   state.registeredLoansAndCards = (state.registeredLoansAndCards || []).filter(i => i.id !== id);
@@ -2868,6 +2989,44 @@ function saveEdit() {
   const targetType = editContext.type;
   const targetIndex = editContext.index;
   const d = getCurrentData();
+
+  if (targetType === 'debtPayment') {
+    const instData = d.loansAndCardsData && d.loansAndCardsData[editContext.instrumentId];
+    if (!instData || !instData.payments || !instData.payments[targetIndex]) return;
+
+    const payment = instData.payments[targetIndex];
+    const oldAmount = Number(payment.amount) || 0;
+    const oldSource = payment.paymentSource;
+
+    const newDate = document.getElementById('editDate') ? document.getElementById('editDate').value : payment.date;
+    const newAmount = Number(document.getElementById('editField2').value) || 0;
+    const newSource = document.getElementById('editPaymentSource') ? document.getElementById('editPaymentSource').value : oldSource;
+    const newComment = document.getElementById('editComment') ? document.getElementById('editComment').value.trim() : '';
+
+    if (newAmount <= 0) { showToast('Enter valid amount', 'error'); return; }
+
+    instData.outstanding = (Number(instData.outstanding) || 0) + oldAmount - newAmount;
+    if (instData.outstanding < 0) instData.outstanding = 0;
+
+    if (oldSource && oldSource.startsWith('bank_')) {
+      processBankAdjustment(oldSource.replace('bank_', ''), oldAmount, `Refund: Edit ${payment.instrumentName}`, 'refund');
+    }
+    if (newSource && newSource.startsWith('bank_')) {
+      processBankAdjustment(newSource.replace('bank_', ''), -newAmount, `Paid: ${payment.instrumentName}`, 'payment_deduction');
+    }
+
+    payment.date = newDate;
+    payment.amount = newAmount;
+    payment.paymentSource = newSource;
+    payment.comment = newComment;
+
+    saveToStorage();
+    renderAll();
+    closeEditModal();
+    showToast('Payment updated', 'success');
+    return;
+  }
+
   const item = d[targetType] ? d[targetType][targetIndex] : null;
 
   if (!item) return;
@@ -2975,6 +3134,15 @@ function exportCSV() {
     // Export Bank Accounts
     (d.banks || []).forEach(item => {
       rows.push([item.date || getTodayDate(), month, 'Banks', item.type || 'Account', item.bankName || item.name || '', item.accountNumber || '', item.note || item.comment || '', item.balance || 0]);
+    });
+
+    // Export Debt Payments (EMI / Credit Card Bills)
+    Object.keys(d.loansAndCardsData || {}).forEach(instId => {
+      const instData = d.loansAndCardsData[instId];
+      (instData.payments || []).forEach(p => {
+        const typeLabel = p.type === 'emi' ? 'EMI' : 'Bill Payment';
+        rows.push([p.date || getTodayDate(), month, 'Debt Payment', typeLabel, p.instrumentName || instId, p.paymentSource || '', p.comment || '', p.amount || 0]);
+      });
     });
   });
 
