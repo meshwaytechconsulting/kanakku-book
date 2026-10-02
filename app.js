@@ -677,6 +677,39 @@ function initializeMonthData(monthName) {
         monthData.loansAndCardsData[id].payments = [];
       });
     }
+
+    const prevAllSavings = [];
+    Object.values(state.data).forEach(m => {
+      if (m === monthData) return;
+      if (m.savings && Array.isArray(m.savings)) {
+        prevAllSavings.push(...m.savings.filter(e => !e.isCarryForward));
+      }
+    });
+    const instruments = state.registeredSavingsInstruments || [];
+    const [monthPart, yearPart] = monthName.split(' ');
+    const monthIdx = new Date(monthName + ' 1').getMonth();
+    const firstOfMonth = `${yearPart}-${String(monthIdx + 1).padStart(2, '0')}-01`;
+    instruments.forEach(inst => {
+      const instEntries = prevAllSavings.filter(e => e.instrumentId === inst.id || e.accountNumber === inst.accountNumber);
+      const cumulative = instEntries.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+      if (cumulative > 0) {
+        const carryEntry = {
+          date: firstOfMonth,
+          createdAt: new Date().toISOString(),
+          instrumentId: inst.id,
+          type: inst.type,
+          accountNumber: inst.accountNumber,
+          name: inst.name,
+          amount: cumulative,
+          isInitialBalance: true,
+          isCarryForward: true,
+        };
+        monthData.savings.push(carryEntry);
+        if (inst.type.includes('FD') || inst.type.includes('RD')) {
+          monthData.deposits.push(carryEntry);
+        }
+      }
+    });
   }
   return monthData;
 }
@@ -715,8 +748,8 @@ function getFilteredData() {
   Object.values(state.data).forEach(m => {
     allNeeds = allNeeds.concat((m.needs || []).filter(item => isDateInRange(item.date)));
     allWants = allWants.concat((m.wants || []).filter(item => isDateInRange(item.date)));
-    allSavings = allSavings.concat((m.savings || []).filter(item => isDateInRange(item.date)));
-    allDeposits = allDeposits.concat((m.deposits || []).filter(item => isDateInRange(item.date)));
+    allSavings = allSavings.concat((m.savings || []).filter(item => !item.isCarryForward && isDateInRange(item.date)));
+    allDeposits = allDeposits.concat((m.deposits || []).filter(item => !item.isCarryForward && isDateInRange(item.date)));
     allBanks = allBanks.concat((m.banks || []).filter(item => isDateInRange(item.date)));
   });
 
@@ -801,7 +834,7 @@ function sortEntriesDesc(a, b) {
 // ─── Cumulative Computations ──
 function getInstrumentCumulativeSavings(savingsList) {
   const instruments = state.registeredSavingsInstruments || [];
-  const entries = savingsList || [];
+  const entries = (savingsList || []).filter(e => !e.isCarryForward);
 
   return instruments.map(inst => {
     const instEntries = entries.filter(e => e.instrumentId === inst.id || e.accountNumber === inst.accountNumber || (e.name && e.name.toLowerCase() === inst.name.toLowerCase()));
@@ -2169,13 +2202,13 @@ function renderSavings() {
         <td class="text-muted">${s.date || getTodayDate()}</td>
         <td><span style="padding:2px 8px;border-radius:4px;font-size:0.72rem;font-weight:600;background:${s.type === 'FD' || s.type === 'RD' ? 'var(--gold-soft);color:var(--gold)' : 'var(--accent-soft);color:var(--accent)'}">${escapeHtml(s.type || 'Investment')}</span></td>
         <td><span class="deposit-acc-num-badge">${escapeHtml(formatAccountNum(s.accountNumber))}</span></td>
-        <td>${escapeHtml(s.name)}${s.isInitialBalance ? ' <span style="padding:1px 6px;border-radius:4px;font-size:0.65rem;font-weight:600;background:var(--blue-soft);color:var(--blue)">Opening Balance</span>' : ''}</td>
+        <td>${escapeHtml(s.name)}${s.isCarryForward ? ' <span style="padding:1px 6px;border-radius:4px;font-size:0.65rem;font-weight:600;background:var(--green-soft);color:var(--green)">Carry Forward</span>' : s.isInitialBalance ? ' <span style="padding:1px 6px;border-radius:4px;font-size:0.65rem;font-weight:600;background:var(--blue-soft);color:var(--blue)">Opening Balance</span>' : ''}</td>
         <td class="amount positive">${fmt(s.amount)}</td>
         <td>
-          <div class="actions">
+          ${s.isCarryForward ? '<span class="text-muted" style="font-size:0.7rem">Auto</span>' : `<div class="actions">
             <button class="btn-icon edit" onclick="openEditModal('savings', ${originalIndex})" title="Edit">✏️</button>
             <button class="btn-icon delete" onclick="deleteItem('savings', ${originalIndex})" title="Delete">🗑️</button>
-          </div>
+          </div>`}
         </td>
       </tr>
     `).join('');
