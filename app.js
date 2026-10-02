@@ -2211,10 +2211,10 @@ function getPaymentSourceBadge(paymentSource) {
   return `<span class="badge-source badge-cash">💵 Cash</span>`;
 }
 
-function processBankAdjustment(bankId, amountChange, note, type) {
+function processBankAdjustment(bankId, amountChange, note, type, silent) {
   const acc = (state.registeredAccounts || []).find(a => a.id === bankId);
   if (!acc) return;
-  
+
   let allBankEntries = [];
   Object.values(state.data).forEach(m => {
     if (m.banks && Array.isArray(m.banks)) allBankEntries = allBankEntries.concat(m.banks);
@@ -2222,9 +2222,9 @@ function processBankAdjustment(bankId, amountChange, note, type) {
   const balancesInfo = getAccountLatestBalances(allBankEntries);
   const accInfo = balancesInfo.find(b => b.account.id === bankId);
   const curBal = accInfo ? accInfo.latestBalance : 0;
-  
+
   const newBalance = curBal + amountChange;
-  if (newBalance < 0) {
+  if (newBalance < 0 && !silent) {
     showToast(`Warning: ${acc.bankName} balance insufficient. Set to ₹0.`, 'warning');
   }
 
@@ -2258,6 +2258,78 @@ function processPaymentSourceEffect(paymentSource, amount, description, date) {
     }
     d.loansAndCardsData[debtId].outstanding = (Number(d.loansAndCardsData[debtId].outstanding) || 0) + amount;
   }
+}
+
+function resolvePaymentSource(rawValue) {
+  if (!rawValue || rawValue === 'cash') return 'cash';
+  if (rawValue.startsWith('bank_') || rawValue.startsWith('debt_')) return rawValue;
+  const matchedAcc = (state.registeredAccounts || []).find(
+    a => a.accountNumber === rawValue
+  );
+  return matchedAcc ? ('bank_' + matchedAcc.id) : 'cash';
+}
+
+function repairBankBalances() {
+  let migratedCount = 0;
+  let repairedCount = 0;
+
+  Object.values(state.data || {}).forEach(monthData => {
+    ['needs', 'wants', 'savings'].forEach(category => {
+      (monthData[category] || []).forEach(entry => {
+        if (!entry.paymentSource) return;
+        if (entry.paymentSource === 'cash') return;
+        if (entry.paymentSource.startsWith('bank_') || entry.paymentSource.startsWith('debt_')) return;
+        const resolved = resolvePaymentSource(entry.paymentSource);
+        if (resolved !== entry.paymentSource) {
+          entry.paymentSource = resolved;
+          migratedCount++;
+        }
+      });
+    });
+  });
+
+  const existingFingerprints = new Set();
+  Object.values(state.data || {}).forEach(monthData => {
+    (monthData.banks || []).forEach(bankEntry => {
+      if (bankEntry.type === 'payment_deduction' || bankEntry.type === 'bill_payment' || bankEntry.type === 'refund') {
+        existingFingerprints.add(`${bankEntry.accountId}|${bankEntry.note}|${bankEntry.date}`);
+      }
+    });
+  });
+
+  const missingAdjustments = [];
+  Object.values(state.data || {}).forEach(monthData => {
+    ['needs', 'wants', 'savings'].forEach(category => {
+      (monthData[category] || []).forEach(entry => {
+        if (!entry.paymentSource || !entry.paymentSource.startsWith('bank_')) return;
+        const bankAccId = entry.paymentSource.replace('bank_', '');
+        const entryName = entry.name || 'Unknown';
+        const fingerprint = `${bankAccId}|Paid: ${entryName}|${entry.date || ''}`;
+        if (!existingFingerprints.has(fingerprint)) {
+          missingAdjustments.push({
+            bankAccId,
+            amount: Number(entry.amount) || 0,
+            name: entryName,
+            date: entry.date || getTodayDate()
+          });
+        }
+      });
+    });
+  });
+
+  missingAdjustments.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+
+  missingAdjustments.forEach(adj => {
+    processBankAdjustment(adj.bankAccId, -adj.amount, `Paid: ${adj.name}`, 'payment_deduction', true);
+    repairedCount++;
+  });
+
+  if (repairedCount > 0 || migratedCount > 0) {
+    saveToStorage(true);
+    renderAll();
+  }
+
+  return { repairedCount, migratedCount };
 }
 
 function renderPaymentSourceOptions() {
@@ -2970,6 +3042,8 @@ function importCSV(file, callback) {
             amount = Number(cleanParts[6] || cleanParts[5] || cleanParts[4]) || 0;
           }
 
+          const resolvedSource = resolvePaymentSource(accNum);
+
           if (category.includes('income') || category.includes('inc')) {
             if (!d.income) d.income = { total: 0, entries: [], needsPct: 50, savingsPct: 20, wantsPct: 10 };
             if (!d.income.entries) d.income.entries = [];
@@ -2983,13 +3057,16 @@ function importCSV(file, callback) {
             d.income.total = d.income.entries.reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
           } else if (category.includes('need')) {
             if (!d.needs) d.needs = [];
-            d.needs.push({ id: 'need_' + Date.now() + Math.random().toString(36).substr(2, 4), date, name, amount, comment, paymentSource: accNum || 'cash' });
+            d.needs.push({ id: 'need_' + Date.now() + Math.random().toString(36).substr(2, 4), date, name, amount, comment, paymentSource: resolvedSource });
+            processPaymentSourceEffect(resolvedSource, amount, name, date);
           } else if (category.includes('want')) {
             if (!d.wants) d.wants = [];
-            d.wants.push({ id: 'want_' + Date.now() + Math.random().toString(36).substr(2, 4), date, name, amount, comment, paymentSource: accNum || 'cash' });
+            d.wants.push({ id: 'want_' + Date.now() + Math.random().toString(36).substr(2, 4), date, name, amount, comment, paymentSource: resolvedSource });
+            processPaymentSourceEffect(resolvedSource, amount, name, date);
           } else if (category.includes('sav')) {
             if (!d.savings) d.savings = [];
-            d.savings.push({ id: 'sav_' + Date.now() + Math.random().toString(36).substr(2, 4), date, type: type || 'Savings', name, accountNumber: accNum, amount, comment });
+            d.savings.push({ id: 'sav_' + Date.now() + Math.random().toString(36).substr(2, 4), date, type: type || 'Savings', name, accountNumber: accNum, amount, comment, paymentSource: resolvedSource });
+            processPaymentSourceEffect(resolvedSource, amount, `Savings: ${name}`, date);
           } else if (category.includes('dep')) {
             if (!d.deposits) d.deposits = [];
             d.deposits.push({ id: 'dep_' + Date.now() + Math.random().toString(36).substr(2, 4), date, type: type === 'RD' ? 'RD' : 'FD', name, accountNumber: accNum, amount, comment });
@@ -3003,7 +3080,8 @@ function importCSV(file, callback) {
             d.banks.push({ id: 'bnk_' + Date.now() + Math.random().toString(36).substr(2, 4), date, accountId: acc.id, bankName: acc.bankName, accountNumber: acc.accountNumber, balance: amount });
           } else {
             if (!d.wants) d.wants = [];
-            d.wants.push({ id: 'want_' + Date.now() + Math.random().toString(36).substr(2, 4), date, name, amount, comment });
+            d.wants.push({ id: 'want_' + Date.now() + Math.random().toString(36).substr(2, 4), date, name, amount, comment, paymentSource: resolvedSource });
+            processPaymentSourceEffect(resolvedSource, amount, name, date);
           }
           importedCount++;
         }
@@ -3097,6 +3175,7 @@ function importJSONBackup(file, callback) {
       saveToStorage(true);
       renderAll();
       showToast('Imported successfully', 'success');
+      showToast('Tip: Run "Repair Bank Balances" in the Banks section to fix any missing deductions.', 'info');
       if (callback) callback(true);
     } catch (err) {
       console.error('JSON import error:', err);
@@ -3372,6 +3451,15 @@ function setupEventListeners() {
   // Bank Forms
   document.getElementById('createAccountBtn').addEventListener('click', createBankAccount);
   document.getElementById('recordBankBalanceBtn').addEventListener('click', recordBankBalance);
+  document.getElementById('repairBankBalancesBtn')?.addEventListener('click', () => {
+    if (!confirm('This will scan all your entries and create missing bank balance deductions. Continue?')) return;
+    const result = repairBankBalances();
+    if (result.repairedCount === 0 && result.migratedCount === 0) {
+      showToast('All bank balances are already correct!', 'success');
+    } else {
+      showToast(`Repaired ${result.repairedCount} missing deduction(s), migrated ${result.migratedCount} payment source(s).`, 'success');
+    }
+  });
   const transferFundsBtn = document.getElementById('transferFundsBtn');
   if (transferFundsBtn) transferFundsBtn.addEventListener('click', transferBankFunds);
 
@@ -4186,7 +4274,8 @@ let wizardData = {
   rawItems: [],
   needs: [],
   wants: [],
-  income: []
+  income: [],
+  bankAccountSource: 'cash'
 };
 
 function openStatementUploadModal() {
@@ -4204,6 +4293,16 @@ function openStatementUploadModal() {
   if (btn) btn.disabled = true;
   if (loader) loader.style.display = 'none';
   if (errBanner) errBanner.style.display = 'none';
+
+  const bankSelect = document.getElementById('wizardBankAccountSelect');
+  if (bankSelect) {
+    let html = '<option value="cash">No linked bank - treat as Cash</option>';
+    (state.registeredAccounts || []).forEach(acc => {
+      const last4 = (acc.accountNumber || '').slice(-4);
+      html += `<option value="bank_${acc.id}">${escapeHtml(acc.bankName)} (${last4})</option>`;
+    });
+    bankSelect.innerHTML = html;
+  }
 
   const modal = document.getElementById('statementUploadModal');
   if (modal) modal.classList.add('active');
@@ -4291,8 +4390,9 @@ ${textContent.slice(0, 12000)}
       comment: ''
     })).filter(item => item.amount > 0);
 
+    const selectedBank = document.getElementById('wizardBankAccountSelect')?.value || 'cash';
     closeStatementUploadModal();
-    openWizard(formatted);
+    openWizard(formatted, selectedBank);
   } catch (err) {
     if (loader) loader.style.display = 'none';
     if (btn) btn.disabled = false;
@@ -4390,8 +4490,7 @@ function fallbackParseStatementText(text) {
 }
 
 // ─── Wizard Multi-Step Categorization Engine ─────────────
-function openWizard(items) {
-  // Initially keep all extracted transactions untagged (category = 'unassigned')
+function openWizard(items, bankAccountSource) {
   const unassignedItems = items.map(item => ({
     ...item,
     category: 'unassigned'
@@ -4402,7 +4501,8 @@ function openWizard(items) {
     rawItems: unassignedItems,
     needs: [],
     wants: [],
-    income: []
+    income: [],
+    bankAccountSource: bankAccountSource || 'cash'
   };
 
   const modal = document.getElementById('statementWizardModal');
@@ -4590,7 +4690,7 @@ function renderWizardStep2() {
         <td><input type="date" value="${item.date}" onchange="wizardData.needs[${idx}].date=this.value"></td>
         <td><input type="text" value="${escapeHtml(item.description)}" onchange="wizardData.needs[${idx}].description=this.value"></td>
         <td><input type="number" value="${item.amount}" style="width:90px;" onchange="wizardData.needs[${idx}].amount=Number(this.value)"></td>
-        <td><span class="text-muted">cash</span></td>
+        <td><span class="text-muted">${wizardData.bankAccountSource && wizardData.bankAccountSource.startsWith('bank_') ? (() => { const a = (state.registeredAccounts || []).find(x => x.id === wizardData.bankAccountSource.replace('bank_','')); return a ? escapeHtml(a.bankName) : 'cash'; })() : 'cash'}</span></td>
         <td><input type="text" placeholder="Add comment..." value="${escapeHtml(item.comment || '')}" onchange="wizardData.needs[${idx}].comment=this.value"></td>
         <td><button class="btn-icon delete" onclick="removeWizardItem('needs', ${idx})">🗑️</button></td>
       </tr>
@@ -4609,7 +4709,7 @@ function renderWizardStep3() {
         <td><input type="date" value="${item.date}" onchange="wizardData.wants[${idx}].date=this.value"></td>
         <td><input type="text" value="${escapeHtml(item.description)}" onchange="wizardData.wants[${idx}].description=this.value"></td>
         <td><input type="number" value="${item.amount}" style="width:90px;" onchange="wizardData.wants[${idx}].amount=Number(this.value)"></td>
-        <td><span class="text-muted">cash</span></td>
+        <td><span class="text-muted">${wizardData.bankAccountSource && wizardData.bankAccountSource.startsWith('bank_') ? (() => { const a = (state.registeredAccounts || []).find(x => x.id === wizardData.bankAccountSource.replace('bank_','')); return a ? escapeHtml(a.bankName) : 'cash'; })() : 'cash'}</span></td>
         <td><input type="text" placeholder="Add comment..." value="${escapeHtml(item.comment || '')}" onchange="wizardData.wants[${idx}].comment=this.value"></td>
         <td><button class="btn-icon delete" onclick="removeWizardItem('wants', ${idx})">🗑️</button></td>
       </tr>
@@ -4651,6 +4751,17 @@ function renderWizardStep5() {
 
   document.getElementById('summaryIncomeVal').textContent = fmt(incTot);
   document.getElementById('summaryIncomeCount').textContent = `${wizardData.income.length} entries`;
+
+  const bankLabel = document.getElementById('wizardSelectedBankLabel');
+  if (bankLabel) {
+    if (wizardData.bankAccountSource && wizardData.bankAccountSource.startsWith('bank_')) {
+      const accId = wizardData.bankAccountSource.replace('bank_', '');
+      const acc = (state.registeredAccounts || []).find(a => a.id === accId);
+      bankLabel.textContent = acc ? `${acc.bankName} (${(acc.accountNumber || '').slice(-4)})` : 'Cash';
+    } else {
+      bankLabel.textContent = 'Cash';
+    }
+  }
 }
 
 window.removeWizardItem = function(cat, idx) {
@@ -4668,27 +4779,36 @@ function submitWizardImport() {
   if (!d.income) d.income = { total: 0, entries: [], needsPct: 50, savingsPct: 20, wantsPct: 10 };
   if (!d.income.entries) d.income.entries = [];
 
-  // Add-on / append Statement Wizard entries to existing data
+  const paymentSource = wizardData.bankAccountSource || 'cash';
+
   wizardData.needs.forEach(item => {
+    const amount = Number(item.amount) || 0;
+    const entryDate = item.date || getTodayDate();
+    const entryName = item.description || 'Needs Item';
     d.needs.push({
       id: 'need_' + Date.now() + Math.random().toString(36).substr(2, 4),
-      date: item.date || getTodayDate(),
-      name: item.description || 'Needs Item',
-      amount: Number(item.amount) || 0,
+      date: entryDate,
+      name: entryName,
+      amount: amount,
       comment: item.comment || 'Imported via Statement Wizard',
-      paymentSource: 'cash'
+      paymentSource: paymentSource
     });
+    processPaymentSourceEffect(paymentSource, amount, entryName, entryDate);
   });
 
   wizardData.wants.forEach(item => {
+    const amount = Number(item.amount) || 0;
+    const entryDate = item.date || getTodayDate();
+    const entryName = item.description || 'Wants Item';
     d.wants.push({
       id: 'want_' + Date.now() + Math.random().toString(36).substr(2, 4),
-      date: item.date || getTodayDate(),
-      name: item.description || 'Wants Item',
-      amount: Number(item.amount) || 0,
+      date: entryDate,
+      name: entryName,
+      amount: amount,
       comment: item.comment || 'Imported via Statement Wizard',
-      paymentSource: 'cash'
+      paymentSource: paymentSource
     });
+    processPaymentSourceEffect(paymentSource, amount, entryName, entryDate);
   });
 
   wizardData.income.forEach(item => {

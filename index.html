@@ -388,6 +388,12 @@
         <div class="card-title">Registered Bank Accounts (Latest Balance)</div>
         <div class="bank-cards-grid" id="bankCardsGrid"></div>
 
+        <div style="margin: 12px 0; text-align: right;">
+          <button class="btn btn-secondary" id="repairBankBalancesBtn" title="Scan all entries and fix missing bank deductions">
+            Repair Bank Balances
+          </button>
+        </div>
+
         <!-- Step 2: Record Balance Entry for Existing Account -->
         <div class="card-title">+ Record Balance Entry for Account</div>
         <div class="inline-form" id="bankBalanceForm">
@@ -1241,6 +1247,18 @@
           Upload your bank or credit card statement below. Our AI engine will automatically extract transaction details, dates, and amounts for categorization.
         </p>
 
+        <div style="margin-bottom: 16px;">
+          <label for="wizardBankAccountSelect" style="display: block; font-size: 0.85rem; font-weight: 600; color: var(--text-2); margin-bottom: 6px;">
+            Select Bank Account for this Statement
+          </label>
+          <select id="wizardBankAccountSelect" class="form-select" style="width: 100%;">
+            <option value="cash">No linked bank - treat as Cash</option>
+          </select>
+          <div style="font-size: 0.78rem; color: var(--text-3); margin-top: 4px;">
+            Expenses from this statement will automatically deduct from the selected bank account's balance.
+          </div>
+        </div>
+
         <!-- Dropzone for Statement -->
         <div class="import-dropzone" id="statementDropzone">
           <input type="file" id="statementFileInput" accept=".pdf,.txt,.csv" style="display:none;">
@@ -1456,6 +1474,9 @@
               <div class="card-sub" id="summaryIncomeCount">0 entries</div>
             </div>
           </div>
+          <p style="margin-top: 12px; font-size: 0.9rem; color: var(--text-2);">
+            Payment Source: <strong id="wizardSelectedBankLabel">Cash</strong>
+          </p>
         </div>
 
       </div>
