@@ -321,14 +321,6 @@ let editContext = null;
 
 // ─── Initialization ───────────────────────────
 async function init() {
-  // Restore saved theme preference
-  const savedTheme = localStorage.getItem('kanakku_theme');
-  if (savedTheme === 'light') {
-    document.documentElement.setAttribute('data-theme', 'light');
-    const themeBtn = document.getElementById('themeToggleBtn');
-    if (themeBtn) { themeBtn.textContent = '☀️'; themeBtn.title = 'Switch to Dark Theme'; }
-  }
-
   loadUsersState();
   await checkAuthSession();
   setDefaultDates();
@@ -3531,25 +3523,6 @@ function setupEventListeners() {
   if (hamburgerBtn) hamburgerBtn.addEventListener('click', toggleSidebar);
   if (sidebarOverlay) sidebarOverlay.addEventListener('click', closeSidebar);
 
-  // ─── Theme Toggle ───
-  const themeBtn = document.getElementById('themeToggleBtn');
-  if (themeBtn) {
-    themeBtn.addEventListener('click', () => {
-      const html = document.documentElement;
-      const isLight = html.getAttribute('data-theme') === 'light';
-      if (isLight) {
-        html.removeAttribute('data-theme');
-        themeBtn.textContent = '🌙';
-        themeBtn.title = 'Switch to Light Theme';
-        localStorage.setItem('kanakku_theme', 'dark');
-      } else {
-        html.setAttribute('data-theme', 'light');
-        themeBtn.textContent = '☀️';
-        themeBtn.title = 'Switch to Dark Theme';
-        localStorage.setItem('kanakku_theme', 'light');
-      }
-    });
-  }
 
   document.querySelectorAll('.nav-link').forEach(link => {
     link.addEventListener('click', (e) => {

@@ -275,16 +275,6 @@ body {
   font-size: 0.9rem;
 }
 
-/* Theme Toggle */
-.theme-toggle {
-  width: 34px; height: 34px; border-radius: 50%;
-  background: var(--bg-surface); border: 1px solid var(--border);
-  color: var(--text-2); font-size: 1rem;
-  cursor: pointer; display: flex; align-items: center; justify-content: center;
-  transition: all var(--transition);
-  flex-shrink: 0;
-}
-.theme-toggle:hover { background: var(--bg-surface-hover); color: var(--text-1); border-color: var(--border-hover); }
 
 /* User Profile Badge */
 .user-profile-badge {
@@ -473,7 +463,8 @@ select:focus, input:focus {
 }
 .filter-mode-btn:hover:not(.active) { color: var(--text-2); }
 
-.date-range-picker { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.date-range-picker { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+.date-range-picker label { font-size: 0.78rem; font-weight: 500; color: var(--text-3); white-space: nowrap; }
 .date-range-picker input[type="date"] { padding: 7px 12px; }
 
 /* ─── Content Sections ─────────────────────── */
@@ -993,7 +984,7 @@ select:focus, input:focus {
   }
   .filter-mode-toggle { width: 100%; justify-content: center; }
   .filter-mode-btn { flex: 1; text-align: center; }
-  .date-range-picker { flex-direction: column; align-items: stretch; gap: 8px; }
+  .date-range-picker { flex-direction: column; align-items: stretch; gap: 8px; margin-left: 0; }
 
   .inline-form {
     grid-template-columns: 1fr;
