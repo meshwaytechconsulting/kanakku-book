@@ -857,7 +857,7 @@ function getComputedValues() {
 
   const needsTotal = (d.needs || []).reduce((s, e) => s + (Number(e.amount) || 0), 0);
   const wantsTotal = (d.wants || []).reduce((s, e) => s + (Number(e.amount) || 0), 0);
-  const savingsTotal = (d.savings || []).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const savingsTotal = (d.savings || []).filter(e => !e.isInitialBalance).reduce((s, e) => s + (Number(e.amount) || 0), 0);
 
   const dailyBreakdown = getDailyBreakdown(d);
   const dailyTotal = dailyBreakdown.dailyTotal;
@@ -1963,6 +1963,7 @@ function createSavingsInstrument() {
       accountNumber: newInst.accountNumber,
       name: newInst.name,
       amount: initialAmount,
+      isInitialBalance: true,
     };
     d.savings.push(entry);
     if (type.includes('FD') || type.includes('RD')) {
@@ -2168,7 +2169,7 @@ function renderSavings() {
         <td class="text-muted">${s.date || getTodayDate()}</td>
         <td><span style="padding:2px 8px;border-radius:4px;font-size:0.72rem;font-weight:600;background:${s.type === 'FD' || s.type === 'RD' ? 'var(--gold-soft);color:var(--gold)' : 'var(--accent-soft);color:var(--accent)'}">${escapeHtml(s.type || 'Investment')}</span></td>
         <td><span class="deposit-acc-num-badge">${escapeHtml(formatAccountNum(s.accountNumber))}</span></td>
-        <td>${escapeHtml(s.name)}</td>
+        <td>${escapeHtml(s.name)}${s.isInitialBalance ? ' <span style="padding:1px 6px;border-radius:4px;font-size:0.65rem;font-weight:600;background:var(--blue-soft);color:var(--blue)">Opening Balance</span>' : ''}</td>
         <td class="amount positive">${fmt(s.amount)}</td>
         <td>
           <div class="actions">
